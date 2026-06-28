@@ -7,12 +7,10 @@ from rich.console import Console
 from rich.table import Table
 
 # Add workspace root to python path to prevent import issues
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from src.config import load_settings
-from src.storage import FileSystemStorage
-from src.webapp.app import run_server
-from src.coordinator.service import CoordinatorService
+from shikibo.config import load_settings
+from shikibo.storage import FileSystemStorage
+from shikibo.webapp.app import run_server
+from shikibo.coordinator.service import CoordinatorService
 
 console = Console()
 

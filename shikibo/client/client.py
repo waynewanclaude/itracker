@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import mimetypes
 
-from src.config import Settings
-from src.storage import FileSystemStorage
+from shikibo.config import Settings
+from shikibo.storage import FileSystemStorage
 
 class ThreadMailClient:
     def __init__(self, settings: Settings, storage: FileSystemStorage = None):

@@ -24,42 +24,42 @@
     source .venv/bin/activate    # On macOS/Linux
     ```
 
-2.  **Install Dependencies**:
+2.  **Install in Editable Mode**:
     ```bash
-    python -m pip install -r requirements.txt
+    python -m pip install -e .
     ```
 
 3.  **Default Storage Configuration**:
-    By default, `shikibo` targets `G:\My Drive\shikibo_test` as the sync database root. You can modify this in `src/config.py` or by passing the `-r`/`--root-dir` parameter to the CLI.
+    By default, `shikibo` targets `G:\My Drive\shikibo_test` as the sync database root. You can modify this in `shikibo/config.py` or by passing the `-r`/`--root-dir` parameter to the CLI.
 
 ---
 
 ## Usage
 
-All commands are orchestrated via `main.py`:
+All commands are orchestrated via the `shikibo` command (or `python -m shikibo`):
 
 ### 1. Launch the WebApp
 Launches the minimalist user interface and automatically opens the default web browser:
 ```powershell
-.venv\Scripts\python main.py webapp
+shikibo webapp
 ```
 
 ### 2. Run a One-Shot Outbox Scan
 Scan all registered outboxes and distribute pending messages immediately:
 ```powershell
-.venv\Scripts\python main.py scan
+shikibo scan
 ```
 
 ### 3. Run the Coordinator Daemon
-Runs the coordinator as a background service that runs a scan periodically (interval configured in `src/config.py`):
+Runs the coordinator as a background service that watches files:
 ```powershell
-.venv\Scripts\python main.py service
+shikibo service --fs-events
 ```
 
 ### 4. Archive a Thread
 Create a ZIP package of a closed thread:
 ```powershell
-.venv\Scripts\python main.py archive <thread_id>
+shikibo archive <thread_id>
 ```
 
 ---
@@ -68,6 +68,6 @@ Create a ZIP package of a closed thread:
 
 Run the automated integration suite:
 ```powershell
-.venv\Scripts\python tests/test_flow.py
+python tests/test_flow.py
 ```
 This tests client-initialization, drafts, attachments, outbox publications, coordinator scans, receipts, SQLite ledger integrity, and duplicate prevention.

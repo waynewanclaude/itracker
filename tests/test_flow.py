@@ -8,10 +8,10 @@ from pathlib import Path
 # Add workspace root to python path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import Settings
-from src.storage import FileSystemStorage
-from src.client.client import ThreadMailClient
-from src.coordinator.service import CoordinatorService
+from shikibo.config import Settings
+from shikibo.storage import FileSystemStorage
+from shikibo.client.client import ThreadMailClient
+from shikibo.coordinator.service import CoordinatorService
 
 def test_integration():
     print("=== ThreadMail Integration Test ===")

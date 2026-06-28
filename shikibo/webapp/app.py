@@ -8,10 +8,10 @@ from werkzeug.utils import secure_filename
 from pathlib import Path
 from queue import Queue
 
-from src.config import load_settings
-from src.storage import FileSystemStorage
-from src.client.client import ThreadMailClient
-from src.coordinator.service import CoordinatorService
+from shikibo.config import load_settings
+from shikibo.storage import FileSystemStorage
+from shikibo.client.client import ThreadMailClient
+from shikibo.coordinator.service import CoordinatorService
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 

@@ -12,8 +12,8 @@ import threading
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from src.config import Settings
-from src.storage import FileSystemStorage
+from shikibo.config import Settings
+from shikibo.storage import FileSystemStorage
 
 class OutboxWatcherHandler(FileSystemEventHandler):
     def __init__(self, service):

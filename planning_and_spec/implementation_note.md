@@ -17,11 +17,12 @@ shikibo/
 |   |-- implementation_note.md          # [THIS FILE] Tech choices & rationale
 |   |-- prime_directive.md              # Safety guidelines for files
 |   `-- user_intent.md                  # Binding application behavior
-|-- main.py                             # Entry point and CLI orchestrator
+|-- pyproject.toml                      # Package build configuration
 |-- tests/
 |   `-- test_flow.py                    # Integration test suite
-`-- src/
+`-- shikibo/
     |-- __init__.py
+    |-- __main__.py                     # Entry point and CLI orchestrator
     |-- config.py                       # Configuration & path parsing (Pydantic)
     |-- storage.py                      # Abstraction layer for filesystem operations
     |-- client/
@@ -43,10 +44,10 @@ shikibo/
 
 ## 2. Core Technical Stack & Module Choices
 
-*   **Pydantic (`src/config.py`)**: Used for managing global configuration (`Settings`). Pydantic ensures clean validation of environment variables and JSON config overrides, and provides automated initialization hooks (`model_post_init`) to dynamically construct absolute folder paths based on overrides.
-*   **Flask (`src/webapp/app.py`)**: Powering the local WebApp interface. Flask was selected because it is lightweight, standard, requires minimal boilerplate, and is easy to orchestrate locally alongside background coordinator timers.
-*   **SQLite3 (`src/coordinator/service.py`)**: Embedded local cache (`coordinator_ledger.db`) for tracking distributed message deduplication keys. It enables the coordinator to perform fast, indexed database queries to check for duplicate messages rather than scanning all threads on every tick, while remaining completely reconstructible from the raw filesystem.
-*   **Standard Python Filesystem Operations (`src/storage.py`)**: File system actions are encapsulated behind `FileSystemStorage` using standard library modules like `os`, `shutil`, `tempfile`, and `pathlib`. It avoids external database or cloud provider SDKs, enabling `shikibo` to run seamlessly on top of any file sync provider (Google Drive, Dropbox, OneDrive, Syncthing, or local directories).
+*   **Pydantic (`shikibo/config.py`)**: Used for managing global configuration (`Settings`). Pydantic ensures clean validation of environment variables and JSON config overrides, and provides automated initialization hooks (`model_post_init`) to dynamically construct absolute folder paths based on overrides.
+*   **Flask (`shikibo/webapp/app.py`)**: Powering the local WebApp interface. Flask was selected because it is lightweight, standard, requires minimal boilerplate, and is easy to orchestrate locally alongside background coordinator timers.
+*   **SQLite3 (`shikibo/coordinator/service.py`)**: Embedded local cache (`coordinator_ledger.db`) for tracking distributed message deduplication keys. It enables the coordinator to perform fast, indexed database queries to check for duplicate messages rather than scanning all threads on every tick, while remaining completely reconstructible from the raw filesystem.
+*   **Standard Python Filesystem Operations (`shikibo/storage.py`)**: File system actions are encapsulated behind `FileSystemStorage` using standard library modules like `os`, `shutil`, `tempfile`, and `pathlib`. It avoids external database or cloud provider SDKs, enabling `shikibo` to run seamlessly on top of any file sync provider (Google Drive, Dropbox, OneDrive, Syncthing, or local directories).
 
 ---
 

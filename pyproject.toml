@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shikibo"
+version = "0.1.0"
+description = "A distributed coordination and workload sharing system for humans and AI agents"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "flask>=3.0.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "tqdm>=4.65.0",
+    "watchdog>=3.0.0",
+]
+
+[project.entry-points.console_scripts]
+shikibo = "shikibo.__main__:main"
+
+[tool.setuptools]
+packages = ["shikibo", "shikibo.client", "shikibo.coordinator", "shikibo.webapp"]
+
+[tool.setuptools.package-data]
+shikibo = ["webapp/static/*", "webapp/static/**/*"]

@@ -53,6 +53,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 });
 
+function getFolderHash(str) {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    }
+    return hash;
+}
+
+function hslToRgb(h, s, l) {
+    s /= 100;
+    l /= 100;
+    const k = n => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+    return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
+function updateTitleBarColor(folderName) {
+    const bar = document.getElementById("workspace-title-bar");
+    if (!bar) return;
+    const hash = getFolderHash(folderName);
+    const hue = Math.abs(hash) % 360;
+    const saturation = 65;
+    const lightness = 45;
+    bar.style.backgroundColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+    
+    const rgb = hslToRgb(hue, saturation, lightness);
+    const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+    const textColor = brightness > 125 ? "#111111" : "#ffffff";
+    const secColor = brightness > 125 ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.85)";
+    
+    document.getElementById("folder-name").style.color = textColor;
+    document.getElementById("folder-path").style.color = secColor;
+}
+
 async function loadConfig() {
     try {
         const res = await fetch("/api/config");
@@ -65,6 +100,9 @@ async function loadConfig() {
         const folderName = rootDir.split(/[/\\]/).pop() || rootDir;
         document.getElementById("folder-name").textContent = folderName;
         document.getElementById("folder-path").textContent = rootDir;
+        
+        // Update Title Bar Color dynamically
+        updateTitleBarColor(folderName);
     } catch (e) {
         console.error("Failed to load config", e);
     }

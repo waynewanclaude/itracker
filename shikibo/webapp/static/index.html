@@ -7,9 +7,16 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="app-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
+    <div class="page-container">
+        <!-- Workspace Title Bar -->
+        <div class="workspace-title-bar" id="workspace-title-bar">
+            <div class="folder-name" id="folder-name">Loading folder...</div>
+            <div class="folder-path" id="folder-path">...</div>
+        </div>
+
+        <div class="app-container">
+            <!-- Sidebar -->
+            <aside class="sidebar">
             <div class="sidebar-header">
                 <h2>ThreadMail</h2>
                 <div class="user-badge" id="user-badge">Loading...</div>
@@ -38,12 +45,6 @@
 
         <!-- Main Workspace -->
         <main class="main-workspace">
-            <!-- Workspace Title Bar -->
-            <div class="workspace-title-bar" id="workspace-title-bar">
-                <div class="folder-name" id="folder-name">Loading folder...</div>
-                <div class="folder-path" id="folder-path">...</div>
-            </div>
-            
             <!-- Selected Thread Pane -->
             <section class="thread-pane" id="thread-pane">
                 <div class="thread-header" id="thread-header">
@@ -88,6 +89,7 @@
             </div>
         </aside>
     </div>
+    </div> <!-- page-container -->
 
     <!-- Modal for new thread -->
     <div class="modal" id="new-thread-modal">

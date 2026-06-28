@@ -43,7 +43,6 @@ async function refreshAll() {
     await loadThreads();
     await loadUsers();
     await loadPending();
-    await loadReceipts();
 }
 
 async function pollUpdates() {
@@ -52,7 +51,6 @@ async function pollUpdates() {
     }
     await loadUsers();
     await loadPending();
-    await loadReceipts();
 }
 
 // --- Thread operations ---
@@ -428,44 +426,6 @@ async function loadPending() {
         });
     } catch (e) {
         console.error("Failed to load pending outbox", e);
-    }
-}
-
-async function loadReceipts() {
-    try {
-        const res = await fetch("/api/receipts");
-        const receipts = await res.json();
-        const container = document.getElementById("receipts-list");
-        container.innerHTML = "";
-        
-        if (receipts.length === 0) {
-            container.innerHTML = '<div class="empty-state">No receipts yet</div>';
-            return;
-        }
-        
-        // Sort receipts descending by timestamp/counter
-        receipts.sort((a,b) => new Date(b.distributed_at) - new Date(a.distributed_at));
-        
-        receipts.forEach(r => {
-            const item = document.createElement("div");
-            item.className = "util-item";
-            
-            const timestamp = r.distributed_at ? new Date(r.distributed_at).toLocaleString() : "";
-            
-            item.innerHTML = `
-                <div class="util-item-header">
-                    <span>${r.source_local_message_id} -> ${r.target_thread_id}</span>
-                </div>
-                <div class="util-item-body">
-                    Status: <span style="color:green; font-weight:bold;">${r.status}</span><br>
-                    Time: ${timestamp}<br>
-                    Thread Pos: #${r.distributed_counter}
-                </div>
-            `;
-            container.appendChild(item);
-        });
-    } catch (e) {
-        console.error("Failed to load receipts", e);
     }
 }
 

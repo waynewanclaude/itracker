@@ -169,6 +169,14 @@ class CoordinatorService:
         if not all([schema, user_id, local_id, thread_id]):
             return {"status": "malformed", "reason": "Missing required metadata fields"}
             
+        # Verify that the declared source_user_id matches the owner of the outbox directory
+        expected_user_id = pkg_path.parent.parent.name
+        if user_id != expected_user_id:
+            return {
+                "status": "malformed", 
+                "reason": f"Security mismatch: source_user_id '{user_id}' does not match outbox owner directory '{expected_user_id}'"
+            }
+            
         # Deduplication check
         if self.is_message_distributed(user_id, local_id):
             # Check if receipt exists, write it if missing

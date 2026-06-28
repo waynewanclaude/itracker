@@ -16,38 +16,16 @@ from shikibo.coordinator.service import CoordinatorService
 def test_integration():
     print("=== ThreadMail Integration Test ===")
     
-    # 1. Setup config pointing to G:\My Drive\shikibo_test
-    test_root = r"G:\My Drive\shikibo_test"
-    print(f"Using test root: {test_root}")
-    
-    # Clean up only specific test files/folders we create, leaving the root directory intact
-    storage = FileSystemStorage()
-    storage.makedirs(test_root)
-    
-    # Specific test paths to clean up
-    cleanup_paths = [
-        os.path.join(test_root, "system", "threads", "T_20260627_TEST"),
-        os.path.join(test_root, "users", "test_runner"),
-        os.path.join(test_root, "drafts", "test_runner"),
-        os.path.join(test_root, "system", "config", "registered_users.txt"),
-        os.path.join(test_root, "system", "coordinator", "coordinator_ledger.db")
-    ]
-    for path in cleanup_paths:
-        if storage.exists(path):
-            try:
-                storage.delete(path)
-            except Exception:
-                try:
-                    import uuid
-                    temp_path = f"{path}_old_{uuid.uuid4().hex[:8]}"
-                    os.rename(path, temp_path)
-                    storage.delete(temp_path)
-                except Exception as e:
-                    print(f"Warning: failed to clean up {path}: {e}")
-    
     import uuid
     run_id = uuid.uuid4().hex[:8]
     test_user_id = f"test_runner_{run_id}"
+    
+    # 1. Setup config pointing to G:\My Drive\shikibo_test
+    test_root = os.path.join(r"G:\My Drive\shikibo_test", f"run_{run_id}")
+    print(f"Using test root: {test_root}")
+    
+    storage = FileSystemStorage()
+    storage.makedirs(test_root)
     
     settings = Settings(
         user_id=test_user_id,
@@ -201,6 +179,8 @@ def test_integration():
         
         # Scan outboxes
         role_scan = coordinator.run_scan()
+        if role_scan["processed"] != 1:
+            print("DEBUG: role_scan is", role_scan)
         assert role_scan["processed"] == 1
         
         # Check distributed message on thread folder
@@ -224,6 +204,10 @@ def test_integration():
     finally:
         if os.path.exists(temp_attach_path):
             os.remove(temp_attach_path)
+        try:
+            storage.delete(test_root)
+        except Exception as e:
+            print(f"Warning: Failed to delete test root: {e}")
 
 if __name__ == "__main__":
     test_integration()

@@ -215,6 +215,12 @@ class ThreadMailClient:
         draft_data = self.read_draft(draft_id)
         draft_path = self._get_draft_path(draft_id)
         
+        # Verify target thread exists
+        thread_id = draft_data.get("thread_id")
+        thread_dir = Path(self.settings.thread_root) / thread_id
+        if not self.storage.exists(thread_dir / "thread.json"):
+            raise ValueError(f"Target thread {thread_id} does not exist in the shared workspace.")
+            
         # 1. Assign next local message ID
         msg_id = self._generate_next_local_message_id()
         

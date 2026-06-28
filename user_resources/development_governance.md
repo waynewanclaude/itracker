@@ -20,6 +20,7 @@ This document defines organizational and developer workflow requirements for bui
 - If the workspace is not already inside a Git repository, the user must either provide the correct repository workspace or explicitly authorize the AI agent to create a local Git repository with `git init`.
 - Git is the project revision log. Do not maintain manual revision history tables or author lists inside documents.
 - Do not commit generated local development state, local virtual environments, caches, build outputs, or debug outputs unless the project intentionally promotes a specific generated artifact for distribution.
+- Always update the patch version in `pyproject.toml` in every commit and push, even when it is only a document update or other minor event.
 
 ---
 

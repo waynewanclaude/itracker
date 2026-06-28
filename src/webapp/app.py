@@ -228,6 +228,13 @@ def datetime_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def run_server(port: int = 5000, debug: bool = False):
+    global settings, storage, client, coordinator
+    settings = load_settings()
+    storage = FileSystemStorage()
+    client = ThreadMailClient(settings, storage)
+    coordinator = CoordinatorService(settings, storage)
+    coordinator.register_user(settings.user_id)
+    
     if not debug:
         # Start browser automatically in 1 second
         Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()

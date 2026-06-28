@@ -1,4 +1,4 @@
-# itracker - Distributed ThreadMail System (v1.0 VIP)
+# itracker - Distributed ThreadMail System (v1.0 MVP)
 
 `itracker` is a low-cost, cloud-folder-based asynchronous coordination system for humans and AI agents. It lets multiple participants collaborate through durable, topic-oriented message threads using ordinary filesystem operations on a shared sync folder (e.g., Google Drive, Dropbox, iCloud, or a local directory) as the transport layer.
 

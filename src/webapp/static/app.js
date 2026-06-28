@@ -368,8 +368,6 @@ async function publishMessage() {
     // First auto-save current body text
     await saveDraft();
     
-    if (!confirm("Are you sure you want to publish this message to your outbox? It will become immutable.")) return;
-    
     try {
         const res = await fetch(`/api/drafts/${currentDraftId}/publish`, {
             method: "POST"

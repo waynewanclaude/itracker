@@ -273,6 +273,7 @@ def datetime_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def run_server(port: int = 5000, debug: bool = False):
+    import socket
     global settings, storage, client, coordinator
     settings = load_settings()
     storage = FileSystemStorage()
@@ -280,7 +281,20 @@ def run_server(port: int = 5000, debug: bool = False):
     coordinator = CoordinatorService(settings, storage)
     coordinator.register_user(settings.user_id)
     
+    # Automatically find an available port if the specified port is occupied
+    actual_port = port
+    while actual_port < 65535:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", actual_port))
+                break
+            except OSError:
+                actual_port += 1
+                
+    if actual_port != port:
+        print(f"Port {port} is occupied. Automatically bound to available port {actual_port}.")
+        
     if not debug:
-        # Start browser automatically in 1 second
-        Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
-    app.run(host="127.0.0.1", port=port, debug=debug)
+        # Start browser automatically in 1 second on the actual port
+        Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{actual_port}/")).start()
+    app.run(host="127.0.0.1", port=actual_port, debug=debug)

@@ -121,7 +121,7 @@ def main():
     storage.makedirs(settings.root_dir)
     
     if args.command == "webapp":
-        console.print(f"[bold green]Launching WebApp on http://127.0.0.1:{args.port} as user '{settings.user_id}'" + (f" and role '{settings.role}'" if settings.role else "") + "...[/bold green]")
+        console.print(f"[bold green]Launching WebApp (requesting port {args.port}) as user '{settings.user_id}'" + (f" and role '{settings.role}'" if settings.role else "") + "...[/bold green]")
         # Set settings globally for Flask server loading
         os.environ["SHIKIBO_ROOT_DIR"] = settings.root_dir
         os.environ["SHIKIBO_USER_ID"] = settings.user_id

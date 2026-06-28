@@ -427,3 +427,27 @@ h3 {
     justify-content: flex-end;
     gap: 10px;
 }
+
+/* Workspace Title Bar */
+.workspace-title-bar {
+    padding: 12px 20px;
+    background-color: var(--card-bg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.workspace-title-bar .folder-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--text-color);
+}
+
+.workspace-title-bar .folder-path {
+    font-size: 0.75rem;
+    color: var(--secondary-color);
+    margin-top: 2px;
+    word-break: break-all;
+}

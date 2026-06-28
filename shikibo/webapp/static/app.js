@@ -59,6 +59,12 @@ async function loadConfig() {
         config = await res.json();
         const userText = config.role ? `${config.display_name} (${config.user_id}/${config.role})` : `${config.display_name} (${config.user_id})`;
         document.getElementById("user-badge").textContent = userText;
+        
+        // Display root directory info
+        const rootDir = config.root_dir || "";
+        const folderName = rootDir.split(/[/\\]/).pop() || rootDir;
+        document.getElementById("folder-name").textContent = folderName;
+        document.getElementById("folder-path").textContent = rootDir;
     } catch (e) {
         console.error("Failed to load config", e);
     }

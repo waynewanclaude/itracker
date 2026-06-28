@@ -3,9 +3,10 @@ import json
 import tempfile
 import webbrowser
 from threading import Timer
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response
 from werkzeug.utils import secure_filename
 from pathlib import Path
+from queue import Queue
 
 from src.config import load_settings
 from src.storage import FileSystemStorage
@@ -22,6 +23,34 @@ coordinator = CoordinatorService(settings, storage)
 
 # Automatically register our client's user identity in the coordinator list for easy local testing
 coordinator.register_user(settings.user_id)
+
+sse_clients = []
+
+def notify_clients(event_name="refresh"):
+    for q in list(sse_clients):
+        q.put(event_name)
+
+if settings.use_fs_events:
+    from watchdog.observers import Observer
+    from watchdog.events import FileSystemEventHandler
+    
+    class ThreadsWatcherHandler(FileSystemEventHandler):
+        def on_any_event(self, event):
+            if event.is_directory:
+                return
+            name = Path(event.src_path).name
+            if name.startswith(".") or name.startswith("~") or name.endswith(".tmp"):
+                return
+            notify_clients("refresh")
+            
+    threads_dir = Path(settings.thread_root)
+    storage.makedirs(threads_dir)
+    
+    handler = ThreadsWatcherHandler()
+    observer = Observer()
+    observer.schedule(handler, path=str(threads_dir), recursive=True)
+    observer.start()
+    print(f"[Watcher] WebApp streaming events enabled, watching {threads_dir}")
 
 # Helper to secure serve attachments
 @app.route("/api/attachments/<thread_id>/<msg_folder>/<filename>")
@@ -223,6 +252,21 @@ def trigger_scan():
         return jsonify(summary)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/events")
+def stream_events():
+    def event_generator():
+        q = Queue()
+        sse_clients.append(q)
+        try:
+            yield "data: connected\n\n"
+            while True:
+                event_data = q.get()
+                yield f"data: {event_data}\n\n"
+        except GeneratorExit:
+            if q in sse_clients:
+                sse_clients.remove(q)
+    return Response(event_generator(), mimetype="text/event-stream")
 
 def datetime_now() -> str:
     from datetime import datetime, timezone

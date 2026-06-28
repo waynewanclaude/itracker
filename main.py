@@ -38,22 +38,33 @@ def run_single_scan(settings, storage):
             console.print(f" - {err}", style="red")
 
 def run_coordinator_service(settings, storage):
-    console.print(f"[bold green]Starting Coordinator Daemon Service (Interval: {settings.scan_interval}s)...[/bold green]")
-    console.print("[yellow]Press Ctrl+C to stop.[/yellow]")
     coordinator = CoordinatorService(settings, storage)
-    
-    while True:
+    if settings.use_fs_events:
+        console.print("[bold green]Starting Coordinator filesystem event service...[/bold green]")
+        console.print("[yellow]Press Ctrl+C to stop.[/yellow]")
+        coordinator.start_fs_watcher()
         try:
-            summary = coordinator.run_scan()
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            console.print(f"[{ts}] Scan completed. Processed: {summary['processed']}, Duplicates: {summary['duplicates']}, Dead-letters: {summary['dead_lettered']}")
-            time.sleep(settings.scan_interval)
+            while True:
+                time.sleep(1)
         except KeyboardInterrupt:
             console.print("\n[bold red]Coordinator service stopped by user.[/bold red]")
-            break
-        except Exception as e:
-            console.print(f"[bold red]Error in scan loop: {e}[/bold red]")
-            time.sleep(5)
+        finally:
+            coordinator.stop_fs_watcher()
+    else:
+        console.print(f"[bold green]Starting Coordinator Daemon Service (Interval: {settings.scan_interval}s)...[/bold green]")
+        console.print("[yellow]Press Ctrl+C to stop.[/yellow]")
+        while True:
+            try:
+                summary = coordinator.run_scan()
+                ts = time.strftime("%Y-%m-%d %H:%M:%S")
+                console.print(f"[{ts}] Scan completed. Processed: {summary['processed']}, Duplicates: {summary['duplicates']}, Dead-letters: {summary['dead_lettered']}")
+                time.sleep(settings.scan_interval)
+            except KeyboardInterrupt:
+                console.print("\n[bold red]Coordinator service stopped by user.[/bold red]")
+                break
+            except Exception as e:
+                console.print(f"[bold red]Error in scan loop: {e}[/bold red]")
+                time.sleep(5)
 
 def run_archive_thread(thread_id, settings, storage):
     console.print(f"[bold blue]Archiving thread: {thread_id}...[/bold blue]")
@@ -70,6 +81,7 @@ def main():
     parser.add_argument("-r", "--root-dir", help="Override testing root directory (defaults to G:\\My Drive\\shikibo_test)")
     parser.add_argument("-u", "--user", help="Override user identity (defaults to system user)")
     parser.add_argument("--role", help="Override user role (optional)")
+    parser.add_argument("--fs-events", action="store_true", help="Enable watchdog filesystem events instead of polling")
     
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
@@ -99,6 +111,8 @@ def main():
         settings.role = args.role
     if args.root_dir:
         settings.root_dir = args.root_dir
+    if args.fs_events:
+        settings.use_fs_events = True
     
     # Re-initialize path structure based on overrides
     settings.model_post_init(None)
@@ -115,6 +129,8 @@ def main():
         os.environ["SHIKIBO_USER_ID"] = settings.user_id
         if settings.role:
             os.environ["SHIKIBO_ROLE"] = settings.role
+        if settings.use_fs_events:
+            os.environ["SHIKIBO_USE_FS_EVENTS"] = "true"
         run_server(port=args.port, debug=args.debug)
         
     elif args.command == "scan":

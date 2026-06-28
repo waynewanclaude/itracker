@@ -19,6 +19,7 @@ class Settings(BaseModel):
     
     # Coordinator configuration
     scan_interval: int = Field(default=5)  # seconds between background scans
+    use_fs_events: bool = Field(default=False)
 
     def model_post_init(self, __context) -> None:
         if not self.display_name:
@@ -63,11 +64,15 @@ def load_settings(config_path: str = None) -> Settings:
     env_keys = [
         "user_id", "role", "display_name", "root_dir", 
         "local_draft_root", "outbox_root", "receipt_root", 
-        "thread_root", "index_root", "archive_root", "scan_interval"
+        "thread_root", "index_root", "archive_root", "scan_interval",
+        "use_fs_events"
     ]
     for key in env_keys:
         env_val = os.environ.get(f"SHIKIBO_{key.upper()}")
         if env_val is not None:
-            data[key] = env_val
+            if key == "use_fs_events":
+                data[key] = env_val.lower() in ("true", "1", "yes")
+            else:
+                data[key] = env_val
             
     return Settings(**data)

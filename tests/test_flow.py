@@ -149,6 +149,27 @@ def test_integration():
         assert second_scan["processed"] == 0
         print("Duplicate prevention verified successfully.")
         
+        # 7.1 Test temporary files and directories exclusion
+        print("Testing temporary file/directory exclusion...")
+        temp_dot_outbox = os.path.join(settings.outbox_root, ".temp_pkg")
+        storage.makedirs(temp_dot_outbox)
+        storage.write_file_new(os.path.join(temp_dot_outbox, "message.json"), "{}")
+        
+        temp_tmp_file = os.path.join(settings.outbox_root, "temp_pkg.tmp")
+        storage.write_file_new(temp_tmp_file, "{}")
+        
+        temp_tilde_file = os.path.join(settings.outbox_root, "~temp_pkg")
+        storage.write_file_new(temp_tilde_file, "{}")
+
+        temp_scan = coordinator.run_scan()
+        assert temp_scan["processed"] == 0
+        assert temp_scan["dead_lettered"] == 0
+        
+        storage.delete(temp_dot_outbox)
+        storage.delete(temp_tmp_file)
+        storage.delete(temp_tilde_file)
+        print("Temporary file/directory exclusion verified successfully.")
+        
         # 8. Test Role-based publishing and scanning
         print("Testing Role-based flow...")
         role_settings = Settings(

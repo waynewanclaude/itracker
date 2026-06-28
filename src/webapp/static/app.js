@@ -9,8 +9,24 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadConfig();
     await refreshAll();
     
-    // Set up recurring poll (every 5 seconds) to fetch messages, pending outbox, and receipts
-    setInterval(pollUpdates, 5000);
+    if (config.use_fs_events) {
+        console.log("Filesystem events enabled. Hooking up EventSource to /api/events");
+        const eventSource = new EventSource("/api/events");
+        eventSource.onmessage = async (event) => {
+            if (event.data === "refresh") {
+                await refreshAll();
+                if (activeThreadId) {
+                    await loadThreadMessages(activeThreadId);
+                }
+            }
+        };
+        eventSource.onerror = (e) => {
+            console.error("EventSource failed:", e);
+        };
+    } else {
+        // Set up recurring poll (every 5 seconds) to fetch messages, pending outbox, and receipts
+        setInterval(pollUpdates, 5000);
+    }
     
     // Bind UI actions
     document.getElementById("btn-new-thread").addEventListener("click", openNewThreadModal);

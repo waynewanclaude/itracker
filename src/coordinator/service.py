@@ -8,13 +8,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 
+import threading
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
 from src.config import Settings
 from src.storage import FileSystemStorage
+
+class OutboxWatcherHandler(FileSystemEventHandler):
+    def __init__(self, service):
+        self.service = service
+
+    def on_created(self, event):
+        self._check_and_trigger(event.src_path)
+
+    def on_moved(self, event):
+        self._check_and_trigger(event.dest_path)
+
+    def _check_and_trigger(self, file_path_str):
+        path = Path(file_path_str)
+        if path.name == "message.json":
+            parts = path.parts
+            if "users" in parts and "outbox" in parts:
+                self.service.run_scan()
 
 class CoordinatorService:
     def __init__(self, settings: Settings, storage: FileSystemStorage = None):
         self.settings = settings
         self.storage = storage or FileSystemStorage()
+        self.scan_lock = threading.Lock()
+        self.observer = None
         
         self.db_path = Path(self.settings.root_dir) / "system" / "coordinator" / "coordinator_ledger.db"
         self.storage.makedirs(self.db_path.parent)
@@ -96,6 +119,28 @@ class CoordinatorService:
         conn.close()
         print("Rebuild complete.")
 
+    def _is_temp_name(self, name: str) -> bool:
+        """Checks if a file/directory name is a temporary sync artifact."""
+        return name.startswith(".") or name.startswith("~") or name.endswith(".tmp")
+
+    def start_fs_watcher(self) -> None:
+        """Starts a background filesystem watchdog to monitor registered outboxes recursively."""
+        users_dir = Path(self.settings.root_dir) / "users"
+        self.storage.makedirs(users_dir)
+        
+        handler = OutboxWatcherHandler(self)
+        self.observer = Observer()
+        self.observer.schedule(handler, path=str(users_dir), recursive=True)
+        self.observer.start()
+        print(f"[Watcher] Started outbox filesystem watcher on {users_dir}")
+
+    def stop_fs_watcher(self) -> None:
+        """Stops the outbox filesystem watchdog."""
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+            print("[Watcher] Stopped outbox filesystem watcher.")
+
     def get_registered_users(self) -> List[str]:
         """Reads registered user/folder names from config/registered_users.txt."""
         content = self.storage.read_file_text(self.registered_users_file)
@@ -122,7 +167,7 @@ class CoordinatorService:
                 try:
                     entries = self.storage.list_dir(user_dir)
                     for entry in entries:
-                        if entry in ("outbox", "receipts", ".processed"):
+                        if entry in ("outbox", "receipts", ".processed") or self._is_temp_name(entry):
                             continue
                         role_dir = user_dir / entry
                         role_outbox = role_dir / "outbox"
@@ -341,59 +386,60 @@ class CoordinatorService:
         """Scans all registered outboxes and processes pending messages.
         Moves successfully distributed packages to an outbox .processed subfolder.
         """
-        registered = self.get_registered_outboxes()
-        summary = {
-            "scanned_outboxes": len(registered),
-            "processed": 0,
-            "duplicates": 0,
-            "dead_lettered": 0,
-            "errors": []
-        }
-        
-        for outbox_path in registered:
-            path = Path(outbox_path)
-            if not self.storage.exists(path):
-                continue
-                
-            entries = self.storage.list_dir(path)
-            for entry in entries:
-                if entry == ".processed":
+        with self.scan_lock:
+            registered = self.get_registered_outboxes()
+            summary = {
+                "scanned_outboxes": len(registered),
+                "processed": 0,
+                "duplicates": 0,
+                "dead_lettered": 0,
+                "errors": []
+            }
+            
+            for outbox_path in registered:
+                path = Path(outbox_path)
+                if not self.storage.exists(path):
                     continue
                     
-                pkg_path = path / entry
-                if self.storage.is_dir(pkg_path):
-                    res = self.process_outbox_package(pkg_path)
-                    
-                    status = res.get("status")
-                    if status == "success":
-                        summary["processed"] += 1
-                        # Move to outbox's internal .processed subfolder to clean up outbox queue
-                        processed_dir = path / ".processed"
-                        self.storage.makedirs(processed_dir)
-                        self.storage.rename_or_finalize(pkg_path, processed_dir / entry)
-                    elif status == "duplicate":
-                        summary["duplicates"] += 1
-                        # Safe cleanup: since it's already distributed, delete the outbox duplicate
-                        self.storage.delete(pkg_path)
-                    elif status in ["malformed", "invalid_thread", "closed_thread"]:
-                        summary["dead_lettered"] += 1
-                        summary["errors"].append(f"Package {entry}: {res.get('reason')}")
-                        # Move to coordinator dead-letter folder
-                        dl_dest = self.dead_letter_path / entry
-                        # If dead-letter target already exists, append unique suffix
-                        if self.storage.exists(dl_dest):
-                            dl_dest = self.dead_letter_path / f"{entry}_{int(datetime.now().timestamp())}"
-                        try:
-                            # Save error explanation file inside the dead letter folder
-                            self.storage.rename_or_finalize(pkg_path, dl_dest)
-                            self.storage.write_file_new(dl_dest / "dead_letter_reason.txt", res.get("reason"))
-                        except Exception as e:
-                            summary["errors"].append(f"Failed to move package {entry} to dead_letter: {e}")
-                    elif status == "unstable":
-                        # Skip this package and process it on the next run
-                        pass
+                entries = self.storage.list_dir(path)
+                for entry in entries:
+                    if entry == ".processed" or self._is_temp_name(entry):
+                        continue
                         
-        return summary
+                    pkg_path = path / entry
+                    if self.storage.is_dir(pkg_path):
+                        res = self.process_outbox_package(pkg_path)
+                        
+                        status = res.get("status")
+                        if status == "success":
+                            summary["processed"] += 1
+                            # Move to outbox's internal .processed subfolder to clean up outbox queue
+                            processed_dir = path / ".processed"
+                            self.storage.makedirs(processed_dir)
+                            self.storage.rename_or_finalize(pkg_path, processed_dir / entry)
+                        elif status == "duplicate":
+                            summary["duplicates"] += 1
+                            # Safe cleanup: since it's already distributed, delete the outbox duplicate
+                            self.storage.delete(pkg_path)
+                        elif status in ["malformed", "invalid_thread", "closed_thread"]:
+                            summary["dead_lettered"] += 1
+                            summary["errors"].append(f"Package {entry}: {res.get('reason')}")
+                            # Move to coordinator dead-letter folder
+                            dl_dest = self.dead_letter_path / entry
+                            # If dead-letter target already exists, append unique suffix
+                            if self.storage.exists(dl_dest):
+                                dl_dest = self.dead_letter_path / f"{entry}_{int(datetime.now().timestamp())}"
+                            try:
+                                # Save error explanation file inside the dead letter folder
+                                self.storage.rename_or_finalize(pkg_path, dl_dest)
+                                self.storage.write_file_new(dl_dest / "dead_letter_reason.txt", res.get("reason"))
+                            except Exception as e:
+                                summary["errors"].append(f"Failed to move package {entry} to dead_letter: {e}")
+                        elif status == "unstable":
+                            # Skip this package and process it on the next run
+                            pass
+                            
+            return summary
 
     def archive_thread(self, thread_id: str) -> bool:
         """Archives a open/done thread into a zip package, cleaning up the live folder."""

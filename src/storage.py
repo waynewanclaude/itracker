@@ -32,7 +32,11 @@ class FileSystemStorage:
             return f.read()
             
     def makedirs(self, path: Union[str, Path]) -> None:
-        os.makedirs(path, exist_ok=True)
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError:
+            if not os.path.isdir(path):
+                raise
         
     def write_file_new(self, path: Union[str, Path], content: Union[str, bytes]) -> None:
         """Writes content to a path. Raises FileExistsError if the file already exists.
@@ -56,13 +60,23 @@ class FileSystemStorage:
                 os.remove(temp_path)
                 raise
                 
-        try:
-            # Atomic rename/move. Will fail if target exists (which we checked above)
-            os.replace(temp_path, path)
-        except Exception:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise
+        import time
+        retries = 5
+        for i in range(retries):
+            try:
+                # Atomic rename/move. Will fail if target exists (which we checked above)
+                os.replace(temp_path, path)
+                break
+            except PermissionError:
+                if i == retries - 1:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise
+                time.sleep(0.5)
+            except Exception:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise
 
     def copy_tree(self, src: Union[str, Path], dst: Union[str, Path]) -> None:
         """Recursively copies a directory tree. Refuses overwrite if dst exists."""
@@ -76,13 +90,33 @@ class FileSystemStorage:
         if self.exists(dst):
             raise FileExistsError(f"Destination already exists: {dst}")
         self.makedirs(Path(dst).parent)
-        os.replace(src, dst)
+        
+        import time
+        retries = 5
+        for i in range(retries):
+            try:
+                os.replace(src, dst)
+                break
+            except PermissionError:
+                if i == retries - 1:
+                    raise
+                time.sleep(0.5)
         
     def delete(self, path: Union[str, Path]) -> None:
-        """Deletes a file or directory recursively."""
+        """Deletes a file or directory recursively with retries for open/locked files."""
         if not self.exists(path):
             return
-        if self.is_dir(path):
-            shutil.rmtree(path)
-        else:
-            os.remove(path)
+            
+        import time
+        retries = 5
+        for i in range(retries):
+            try:
+                if self.is_dir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+                break
+            except (PermissionError, OSError) as e:
+                if i == retries - 1:
+                    raise
+                time.sleep(0.5)

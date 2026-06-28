@@ -21,11 +21,11 @@ class CoordinatorService:
         self.dead_letter_path = Path(self.settings.root_dir) / "coordinator" / "dead_letter"
         self.storage.makedirs(self.dead_letter_path)
         
-        # Ensure registered_outboxes.txt exists
-        self.registered_outboxes_file = Path(self.settings.root_dir) / "config" / "registered_outboxes.txt"
-        self.storage.makedirs(self.registered_outboxes_file.parent)
-        if not self.storage.exists(self.registered_outboxes_file):
-            self.storage.write_file_new(self.registered_outboxes_file, "")
+        # Ensure registered_users.txt exists
+        self.registered_users_file = Path(self.settings.root_dir) / "config" / "registered_users.txt"
+        self.storage.makedirs(self.registered_users_file.parent)
+        if not self.storage.exists(self.registered_users_file):
+            self.storage.write_file_new(self.registered_users_file, "")
             
         self._init_db()
         self.rebuild_ledger_if_empty()
@@ -95,25 +95,33 @@ class CoordinatorService:
         conn.close()
         print("Rebuild complete.")
 
-    def get_registered_outboxes(self) -> List[str]:
-        """Reads outbox paths from config/registered_outboxes.txt."""
-        content = self.storage.read_file_text(self.registered_outboxes_file)
-        outboxes = []
+    def get_registered_users(self) -> List[str]:
+        """Reads registered user/folder names from config/registered_users.txt."""
+        content = self.storage.read_file_text(self.registered_users_file)
+        users = []
         for line in content.splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
-                outboxes.append(line)
+                users.append(line)
+        return users
+
+    def get_registered_outboxes(self) -> List[str]:
+        """Dynamically constructs outbox paths for all registered users using settings.root_dir."""
+        users = self.get_registered_users()
+        outboxes = []
+        for user in users:
+            outboxes.append(str(Path(self.settings.root_dir) / "users" / user / "outbox"))
         return outboxes
 
-    def register_outbox(self, path: str) -> None:
-        """Helper to register a new outbox path in registered_outboxes.txt."""
-        outboxes = self.get_registered_outboxes()
-        if path not in outboxes:
-            outboxes.append(path)
+    def register_user(self, username: str) -> None:
+        """Helper to register a new user in registered_users.txt."""
+        users = self.get_registered_users()
+        if username not in users:
+            users.append(username)
             # Write back
-            content = "\n".join(outboxes) + "\n"
-            self.storage.delete(self.registered_outboxes_file)
-            self.storage.write_file_new(self.registered_outboxes_file, content)
+            content = "\n".join(users) + "\n"
+            self.storage.delete(self.registered_users_file)
+            self.storage.write_file_new(self.registered_users_file, content)
 
     def is_message_distributed(self, user_id: str, local_id: str) -> bool:
         conn = sqlite3.connect(self.db_path)

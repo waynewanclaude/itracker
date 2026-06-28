@@ -41,8 +41,8 @@ def test_integration():
     client = ThreadMailClient(settings, storage)
     coordinator = CoordinatorService(settings, storage)
     
-    # Register client outbox path
-    coordinator.register_outbox(settings.outbox_root)
+    # Register client user
+    coordinator.register_user(settings.user_id)
     print("Registered outboxes:", coordinator.get_registered_outboxes())
     
     # 2. Setup a test thread folder

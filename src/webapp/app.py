@@ -20,8 +20,8 @@ storage = FileSystemStorage()
 client = ThreadMailClient(settings, storage)
 coordinator = CoordinatorService(settings, storage)
 
-# Automatically register our client's outbox in the coordinator list for easy local testing
-coordinator.register_outbox(settings.outbox_root)
+# Automatically register our client's user identity in the coordinator list for easy local testing
+coordinator.register_user(settings.user_id)
 
 # Helper to secure serve attachments
 @app.route("/api/attachments/<thread_id>/<msg_folder>/<filename>")

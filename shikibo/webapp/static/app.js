@@ -225,8 +225,17 @@ async function markThreadDone() {
 
 // --- New Thread Modal ---
 
-function openNewThreadModal() {
+async function openNewThreadModal() {
     document.getElementById("new-thread-modal").style.display = "flex";
+    try {
+        const res = await fetch("/api/threads/next-id");
+        if (res.ok) {
+            const data = await res.json();
+            document.getElementById("thread-id-input").value = data.thread_id;
+        }
+    } catch (e) {
+        console.error("Failed to fetch next thread ID", e);
+    }
 }
 
 function closeNewThreadModal() {

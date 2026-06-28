@@ -87,6 +87,36 @@ def add_user():
 def list_threads():
     return jsonify(client.list_active_threads())
 
+@app.route("/api/threads/next-id", methods=["GET"])
+def get_next_thread_id():
+    from datetime import datetime, timezone
+    import re
+    try:
+        storage.list_dir(Path(settings.thread_root))
+    except Exception:
+        pass
+    today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    prefix = f"T_{today_str}_"
+    pattern = re.compile(rf"^T_{today_str}_([0-9]+)$")
+    existing_seqs = []
+    if storage.exists(settings.thread_root):
+        for item in storage.list_dir(settings.thread_root):
+            match = pattern.match(item)
+            if match:
+                try:
+                    existing_seqs.append(int(match.group(1)))
+                except ValueError:
+                    pass
+    next_seq = 1
+    if existing_seqs:
+        next_seq = max(existing_seqs) + 1
+    while True:
+        proposed_id = f"{prefix}{next_seq:04d}"
+        proposed_dir = Path(settings.thread_root) / proposed_id
+        if not storage.exists(proposed_dir):
+            return jsonify({"thread_id": proposed_id})
+        next_seq += 1
+
 @app.route("/api/threads", methods=["POST"])
 def create_thread():
     data = request.json or {}

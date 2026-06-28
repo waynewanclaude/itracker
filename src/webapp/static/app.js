@@ -275,6 +275,7 @@ async function setupDraftForThread(threadId) {
     } catch (e) {
         console.error("Failed to setup draft", e);
     }
+    document.getElementById("composer-body").focus();
 }
 
 async function saveDraft() {

@@ -114,6 +114,9 @@ def main():
     
     # Re-initialize path structure based on overrides
     settings.model_post_init(None)
+    
+    from shikibo.config import setup_logging
+    setup_logging(settings)
         
     storage = FileSystemStorage()
     
@@ -125,6 +128,7 @@ def main():
         # Set settings globally for Flask server loading
         os.environ["SHIKIBO_ROOT_DIR"] = settings.root_dir
         os.environ["SHIKIBO_USER_ID"] = settings.user_id
+        os.environ["SHIKIBO_LOG_FILE"] = settings.log_file
         if settings.role:
             os.environ["SHIKIBO_ROLE"] = settings.role
         if settings.use_fs_events:

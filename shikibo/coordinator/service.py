@@ -2,6 +2,9 @@ import os
 import re
 import json
 import sqlite3
+import logging
+
+logger = logging.getLogger("shikibo.coordinator")
 import zipfile
 import shutil
 from datetime import datetime, timezone
@@ -52,6 +55,7 @@ class CoordinatorService:
             
         self._init_db()
         self.rebuild_ledger_if_empty()
+        logger.info(f"CoordinatorService initialized. Root directory: {self.settings.root_dir}, Database: {self.db_path}")
 
     def _init_db(self) -> None:
         """Initializes SQLite ledger for distributed message deduplication."""
@@ -82,7 +86,7 @@ class CoordinatorService:
             conn.close()
             return
             
-        print("Coordinator SQLite database empty. Rebuilding ledger state from filesystem threads...")
+        logger.info("Coordinator SQLite database empty. Rebuilding ledger state from filesystem threads...")
         thread_root = Path(self.settings.thread_root)
         if not self.storage.exists(thread_root):
             conn.close()
@@ -117,7 +121,7 @@ class CoordinatorService:
                     
         conn.commit()
         conn.close()
-        print("Rebuild complete.")
+        logger.info("Rebuild complete.")
 
     def _is_temp_name(self, name: str) -> bool:
         """Checks if a file/directory name is a temporary sync artifact."""
@@ -132,14 +136,14 @@ class CoordinatorService:
         self.observer = Observer()
         self.observer.schedule(handler, path=str(users_dir), recursive=True)
         self.observer.start()
-        print(f"[Watcher] Started outbox filesystem watcher on {users_dir}")
+        logger.info(f"[Watcher] Started outbox filesystem watcher on {users_dir}")
 
     def stop_fs_watcher(self) -> None:
         """Stops the outbox filesystem watchdog."""
         if self.observer:
             self.observer.stop()
             self.observer.join()
-            print("[Watcher] Stopped outbox filesystem watcher.")
+            logger.info("[Watcher] Stopped outbox filesystem watcher.")
 
     def get_registered_users(self) -> List[str]:
         """Reads registered user/folder names from config/registered_users.txt."""
@@ -388,6 +392,7 @@ class CoordinatorService:
         """
         with self.scan_lock:
             registered = self.get_registered_outboxes()
+            logger.info(f"Scanning outboxes: {registered}")
             summary = {
                 "scanned_outboxes": len(registered),
                 "processed": 0,
@@ -413,16 +418,18 @@ class CoordinatorService:
                         status = res.get("status")
                         if status == "success":
                             summary["processed"] += 1
+                            logger.info(f"Successfully processed outbox package '{entry}' from user '{res.get('user_id')}' distributed as '{res.get('folder_name')}'")
                             # Move to outbox's internal .processed subfolder to clean up outbox queue
                             processed_dir = path / ".processed"
                             self.storage.makedirs(processed_dir)
                             self.storage.rename_or_finalize(pkg_path, processed_dir / entry)
                         elif status == "duplicate":
                             summary["duplicates"] += 1
-                            # Safe cleanup: since it's already distributed, delete the outbox duplicate
+                            logger.info(f"Detected duplicate outbox package '{entry}' for user '{res.get('user_id')}', deleting from outbox queue")
                             self.storage.delete(pkg_path)
                         elif status in ["malformed", "invalid_thread", "closed_thread"]:
                             summary["dead_lettered"] += 1
+                            logger.warning(f"Quarantining invalid package '{entry}' to dead-letter folder. Reason: {res.get('reason')}")
                             summary["errors"].append(f"Package {entry}: {res.get('reason')}")
                             # Move to coordinator dead-letter folder
                             dl_dest = self.dead_letter_path / entry
@@ -434,11 +441,16 @@ class CoordinatorService:
                                 self.storage.rename_or_finalize(pkg_path, dl_dest)
                                 self.storage.write_file_new(dl_dest / "dead_letter_reason.txt", res.get("reason"))
                             except Exception as e:
+                                logger.error(f"Failed to move package '{entry}' to dead-letter folder: {e}")
                                 summary["errors"].append(f"Failed to move package {entry} to dead_letter: {e}")
                         elif status == "unstable":
                             # Skip this package and process it on the next run
+                            logger.info(f"Package '{entry}' is currently unstable, skipping for next scan")
                             pass
                             
+            if summary["processed"] > 0 or summary["duplicates"] > 0 or summary["dead_lettered"] > 0:
+                logger.info(f"Scan complete: {summary}")
+                
             return summary
 
     def archive_thread(self, thread_id: str) -> bool:
@@ -467,7 +479,7 @@ class CoordinatorService:
                 self.storage.delete(thread_dir)
                 return True
         except Exception as e:
-            print(f"Failed to archive thread {thread_id}: {e}")
+            logger.error(f"Failed to archive thread {thread_id}: {e}")
             if self.storage.exists(archive_file):
                 self.storage.delete(archive_file)
                 

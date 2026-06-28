@@ -7,11 +7,14 @@ from flask import Flask, request, jsonify, send_from_directory, Response
 from werkzeug.utils import secure_filename
 from pathlib import Path
 from queue import Queue
+import logging
 
 from shikibo.config import load_settings
 from shikibo.storage import FileSystemStorage
 from shikibo.client.client import ThreadMailClient
 from shikibo.coordinator.service import CoordinatorService
+
+logger = logging.getLogger("shikibo.webapp")
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 
@@ -50,7 +53,7 @@ if settings.use_fs_events:
     observer = Observer()
     observer.schedule(handler, path=str(threads_dir), recursive=True)
     observer.start()
-    print(f"[Watcher] WebApp streaming events enabled, watching {threads_dir}")
+    logger.info(f"[Watcher] WebApp streaming events enabled, watching {threads_dir}")
 
 # Helper to secure serve attachments
 @app.route("/api/attachments/<thread_id>/<msg_folder>/<filename>")
@@ -276,6 +279,9 @@ def run_server(port: int = 5000, debug: bool = False):
     import socket
     global settings, storage, client, coordinator
     settings = load_settings()
+    from shikibo.config import setup_logging
+    setup_logging(settings)
+    
     storage = FileSystemStorage()
     client = ThreadMailClient(settings, storage)
     coordinator = CoordinatorService(settings, storage)
@@ -292,7 +298,7 @@ def run_server(port: int = 5000, debug: bool = False):
                 actual_port += 1
                 
     if actual_port != port:
-        print(f"Port {port} is occupied. Automatically bound to available port {actual_port}.")
+        logger.warning(f"Port {port} is occupied. Automatically bound to available port {actual_port}.")
         
     if not debug:
         # Start browser automatically in 1 second on the actual port

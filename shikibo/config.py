@@ -20,6 +20,9 @@ class Settings(BaseModel):
     # Coordinator configuration
     scan_interval: int = Field(default=5)  # seconds between background scans
     use_fs_events: bool = Field(default=True)
+    
+    # Logging configuration
+    log_file: str = Field(default=r"C:\temp\shikibo.log")
 
     def model_post_init(self, __context) -> None:
         if not self.display_name:
@@ -65,7 +68,7 @@ def load_settings(config_path: str = None) -> Settings:
         "user_id", "role", "display_name", "root_dir", 
         "local_draft_root", "outbox_root", "receipt_root", 
         "thread_root", "index_root", "archive_root", "scan_interval",
-        "use_fs_events"
+        "use_fs_events", "log_file"
     ]
     for key in env_keys:
         env_val = os.environ.get(f"SHIKIBO_{key.upper()}")
@@ -76,3 +79,32 @@ def load_settings(config_path: str = None) -> Settings:
                 data[key] = env_val
             
     return Settings(**data)
+
+def setup_logging(settings: Settings) -> None:
+    """Configures the root logger to write to both stdout and the configured log file path."""
+    import logging
+    log_path = Path(settings.log_file)
+    try:
+        os.makedirs(log_path.parent, exist_ok=True)
+    except Exception as e:
+        print(f"Warning: Failed to create log directory {log_path.parent}: {e}")
+        
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    handlers = []
+    
+    try:
+        file_handler = logging.FileHandler(str(log_path), encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+    except Exception as e:
+        print(f"Warning: Failed to create log file handler for {log_path}: {e}")
+        
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    handlers.append(console_handler)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=handlers,
+        force=True
+    )

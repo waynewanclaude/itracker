@@ -8,9 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 import mimetypes
+import logging
 
 from shikibo.config import Settings
 from shikibo.storage import FileSystemStorage
+
+logger = logging.getLogger("shikibo.client")
 
 class ThreadMailClient:
     def __init__(self, settings: Settings, storage: FileSystemStorage = None):
@@ -58,6 +61,7 @@ class ThreadMailClient:
             for attach_path in attachments:
                 self.add_attachment(draft_id, attach_path)
                 
+        logger.info(f"Created local draft '{draft_id}' for thread '{thread_id}'")
         return draft_id
 
     def read_draft(self, draft_id: str) -> Dict[str, Any]:
@@ -288,6 +292,7 @@ class ThreadMailClient:
         # 8. Clean up local draft
         self.delete_local_draft(draft_id)
         
+        logger.info(f"Published draft '{draft_id}' as local message ID '{msg_id}' for user '{user_id_val}' targeting thread '{thread_id}'. Outbox path: {final_outbox_path}")
         return user_id_val, msg_id, str(final_outbox_path)
 
     # --- Thread & Receipt Reading API ---

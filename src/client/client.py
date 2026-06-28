@@ -176,17 +176,35 @@ class ThreadMailClient:
     # --- Outbox / Publishing API ---
     
     def _generate_next_local_message_id(self) -> str:
-        """Analyzes existing outbox folders and generates the next ID: U000001, U000002..."""
+        """Analyzes active outbox folder, processed outbox folder, and receipts to generate the next ID: U000001, U000002..."""
         max_id = 0
         pattern = re.compile(r"^U(\d{6})(_|$)")
         
-        entries = self.storage.list_dir(self.settings.outbox_root)
-        for entry in entries:
-            match = pattern.match(entry)
-            if match:
-                val = int(match.group(1))
-                if val > max_id:
-                    max_id = val
+        # Scan outbox root
+        if self.storage.exists(self.settings.outbox_root):
+            entries = self.storage.list_dir(self.settings.outbox_root)
+            for entry in entries:
+                match = pattern.match(entry)
+                if match:
+                    max_id = max(max_id, int(match.group(1)))
+                    
+        # Scan outbox .processed subfolder
+        processed_path = Path(self.settings.outbox_root) / ".processed"
+        if self.storage.exists(processed_path):
+            entries = self.storage.list_dir(processed_path)
+            for entry in entries:
+                match = pattern.match(entry)
+                if match:
+                    max_id = max(max_id, int(match.group(1)))
+                    
+        # Scan receipts
+        receipt_pattern = re.compile(r"^U(\d{6})_receipt\.json$")
+        if self.storage.exists(self.settings.receipt_root):
+            entries = self.storage.list_dir(self.settings.receipt_root)
+            for entry in entries:
+                match = receipt_pattern.match(entry)
+                if match:
+                    max_id = max(max_id, int(match.group(1)))
                     
         return f"U{max_id + 1:06d}"
 

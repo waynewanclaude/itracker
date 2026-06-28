@@ -36,12 +36,22 @@ def test_integration():
         if storage.exists(path):
             try:
                 storage.delete(path)
-            except Exception as e:
-                print(f"Warning: failed to clean up {path}: {e}")
+            except Exception:
+                try:
+                    import uuid
+                    temp_path = f"{path}_old_{uuid.uuid4().hex[:8]}"
+                    os.rename(path, temp_path)
+                    storage.delete(temp_path)
+                except Exception as e:
+                    print(f"Warning: failed to clean up {path}: {e}")
+    
+    import uuid
+    run_id = uuid.uuid4().hex[:8]
+    test_user_id = f"test_runner_{run_id}"
     
     settings = Settings(
-        user_id="test_runner",
-        display_name="Test Runner Agent",
+        user_id=test_user_id,
+        display_name=f"Test Runner {run_id}",
         root_dir=test_root
     )
     
@@ -54,7 +64,7 @@ def test_integration():
     print("Registered outboxes:", coordinator.get_registered_outboxes())
     
     # 2. Setup a test thread folder
-    thread_id = "T_20260627_TEST"
+    thread_id = f"T_TEST_{run_id}"
     thread_dir = Path(settings.thread_root) / thread_id
     storage.makedirs(thread_dir)
     storage.makedirs(thread_dir / "messages")

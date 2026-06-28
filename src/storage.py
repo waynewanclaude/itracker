@@ -34,8 +34,10 @@ class FileSystemStorage:
     def makedirs(self, path: Union[str, Path]) -> None:
         try:
             os.makedirs(path, exist_ok=True)
+        except FileExistsError:
+            pass
         except OSError:
-            if not os.path.isdir(path):
+            if not os.path.exists(path):
                 raise
         
     def write_file_new(self, path: Union[str, Path], content: Union[str, bytes]) -> None:

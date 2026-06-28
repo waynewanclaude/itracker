@@ -79,7 +79,7 @@ def main():
     parser.add_argument("-r", "--root-dir", help="Override testing root directory (defaults to G:\\My Drive\\shikibo_test)")
     parser.add_argument("-u", "--user", help="Override user identity (defaults to system user)")
     parser.add_argument("--role", help="Override user role (optional)")
-    parser.add_argument("--fs-events", action="store_true", help="Enable watchdog filesystem events instead of polling")
+    parser.add_argument("--poll-only", action="store_true", help="Disable filesystem events and use periodic polling instead")
     
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
@@ -109,8 +109,8 @@ def main():
         settings.role = args.role
     if args.root_dir:
         settings.root_dir = args.root_dir
-    if args.fs_events:
-        settings.use_fs_events = True
+    if args.poll_only:
+        settings.use_fs_events = False
     
     # Re-initialize path structure based on overrides
     settings.model_post_init(None)
@@ -129,6 +129,8 @@ def main():
             os.environ["SHIKIBO_ROLE"] = settings.role
         if settings.use_fs_events:
             os.environ["SHIKIBO_USE_FS_EVENTS"] = "true"
+        else:
+            os.environ["SHIKIBO_USE_FS_EVENTS"] = "false"
         run_server(port=args.port, debug=args.debug)
         
     elif args.command == "scan":

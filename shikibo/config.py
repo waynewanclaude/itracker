@@ -19,7 +19,7 @@ class Settings(BaseModel):
     
     # Coordinator configuration
     scan_interval: int = Field(default=5)  # seconds between background scans
-    use_fs_events: bool = Field(default=False)
+    use_fs_events: bool = Field(default=True)
 
     def model_post_init(self, __context) -> None:
         if not self.display_name:

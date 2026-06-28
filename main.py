@@ -68,6 +68,7 @@ def main():
     parser = argparse.ArgumentParser(description="Distributed ThreadMail System CLI Orchestrator")
     parser.add_argument("-c", "--config", help="Path to config JSON file")
     parser.add_argument("-r", "--root-dir", help="Override testing root directory (defaults to G:\\My Drive\\itracker_test)")
+    parser.add_argument("-u", "--user", help="Override user identity (defaults to system user)")
     
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
@@ -90,10 +91,13 @@ def main():
     
     # Load settings with optional overrides
     settings = load_settings(args.config)
+    if args.user:
+        settings.user_id = args.user
     if args.root_dir:
         settings.root_dir = args.root_dir
-        # Re-initialize path structure based on new root
-        settings.model_post_init(None)
+    
+    # Re-initialize path structure based on overrides
+    settings.model_post_init(None)
         
     storage = FileSystemStorage()
     
@@ -101,9 +105,10 @@ def main():
     storage.makedirs(settings.root_dir)
     
     if args.command == "webapp":
-        console.print(f"[bold green]Launching WebApp on http://127.0.0.1:{args.port}...[/bold green]")
+        console.print(f"[bold green]Launching WebApp on http://127.0.0.1:{args.port} as user '{settings.user_id}'...[/bold green]")
         # Set settings globally for Flask server loading
         os.environ["ITRACKER_ROOT_DIR"] = settings.root_dir
+        os.environ["ITRACKER_USER_ID"] = settings.user_id
         run_server(port=args.port, debug=args.debug)
         
     elif args.command == "scan":

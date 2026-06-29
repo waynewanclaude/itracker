@@ -74,7 +74,9 @@ To support structured collaboration, top-level users can have dynamically create
     During ledger recovery, the coordinator parses the dot back into a slash (`human_wayne/developer`) to reconstruct correct ledger database rows.
 
 ### C. Cloud-Friendliness & No-Loss Integrity
-*   **No Polling/No Locks**: The system avoids using file locks (which cause high sync-churn on cloud platforms like Google Drive).
+*   **Instance Lock Mechanics**: While the system avoids file locking for regular thread access to minimize sync-churn on cloud sync providers, it enforces process-level exclusivity for the coordinator service via a two-tier startup validation:
+    1.  **Host and User Authorization**: The coordinator reads `<root_dir>/system/config/coordinator_host.json` to verify that the executing host and system user match the authorized configuration. This prevents unauthorized systems or synced client instances from starting background scanning loops.
+    2.  **Process PID Verification**: The coordinator reads `<root_dir>/system/coordinator/coordinator_pid.txt`. If the PID belongs to an active `shikibo` coordinator process, the new instance exits with a message. Otherwise, it updates the lock file with its own PID to claim the coordinator throne.
 *   **Safe Sorther Execution**: The coordinator implements an atomic copy-and-verify workflow:
     1.  Verify outbox package is stable.
     2.  Copy package to thread folder.
@@ -83,6 +85,7 @@ To support structured collaboration, top-level users can have dynamically create
     5.  Record entry to SQLite ledger.
     6.  Move package to `.processed/` under the outbox.
 *   **Idempotency**: All operations are deduplicated by `(source_user_id, source_local_message_id)`. If the coordinator crashes mid-process, it catches up idempotently on the next run without introducing duplicate posts.
+
 
 ### D. Multi-Project Directory Segmentation
 To support multiple isolated development streams (e.g. `shikibo`, `ocrone`, `book_image_salon`), each project is assigned its own top-level directory root:

@@ -33,6 +33,17 @@ def test_integration():
         root_dir=test_root
     )
     
+    # Pre-create host configuration file to satisfy coordinator authorization check
+    import socket
+    import getpass
+    host_file = Path(settings.root_dir) / "system" / "config" / "coordinator_host.json"
+    storage.makedirs(host_file.parent)
+    host_data = {
+        "host": socket.gethostname(),
+        "user": getpass.getuser()
+    }
+    storage.write_file_new(host_file, json.dumps(host_data))
+
     # Initialize Client & Coordinator
     client = ThreadMailClient(settings, storage)
     coordinator = CoordinatorService(settings, storage)
@@ -209,5 +220,78 @@ def test_integration():
         except Exception as e:
             print(f"Warning: Failed to delete test root: {e}")
 
+def test_coordinator_locks():
+    print("=== Testing Coordinator Locks and Authorization ===")
+    import socket
+    import getpass
+    import uuid
+    
+    run_id = uuid.uuid4().hex[:8]
+    test_root = os.path.join(r"G:\My Drive\shikibo_test", f"run_lock_{run_id}")
+    storage = FileSystemStorage()
+    storage.makedirs(test_root)
+    
+    settings = Settings(
+        user_id="lock_test_user",
+        root_dir=test_root
+    )
+    
+    # 1. Test missing coordinator_host.json raises SystemExit
+    try:
+        CoordinatorService(settings, storage)
+        assert False, "Should have failed due to missing coordinator_host.json"
+    except SystemExit as e:
+        print("Success: Missing host config check raised SystemExit as expected.")
+        assert "configuration file is missing" in str(e)
+        
+    # 2. Test mismatched coordinator_host.json raises SystemExit
+    host_file = Path(settings.root_dir) / "system" / "config" / "coordinator_host.json"
+    storage.makedirs(host_file.parent)
+    storage.write_file_new(host_file, json.dumps({"host": "wrong_host", "user": "wrong_user"}))
+    
+    try:
+        CoordinatorService(settings, storage)
+        assert False, "Should have failed due to mismatched host/user"
+    except SystemExit as e:
+        print("Success: Mismatched host config check raised SystemExit as expected.")
+        assert "Unauthorized host/user configuration" in str(e)
+        
+    # 3. Test matching host config works and claims the throne (writes PID)
+    storage.delete(host_file)
+    storage.write_file_new(host_file, json.dumps({"host": socket.gethostname(), "user": getpass.getuser()}))
+    
+    coord1 = CoordinatorService(settings, storage)
+    print("Success: Coordinator instantiated with valid host config.")
+    
+    pid_file = Path(settings.root_dir) / "system" / "coordinator" / "coordinator_pid.txt"
+    assert storage.exists(pid_file)
+    assert int(storage.read_file_text(pid_file).strip()) == os.getpid()
+    print("Success: PID file correctly written with current PID.")
+    
+    # 4. Test double instantiation in the same process does not fail (reclaims throne)
+    coord2 = CoordinatorService(settings, storage)
+    print("Success: Re-instantiation in same process succeeded without error.")
+    
+    # 5. Test another active process raises SystemExit
+    # We write the parent process ID (which is running Python/runner and contains "python")
+    try:
+        parent_pid = os.getppid()
+        storage.delete(pid_file)
+        storage.write_file_new(pid_file, str(parent_pid))
+        
+        CoordinatorService(settings, storage)
+        assert False, f"Should have failed due to active coordinator PID check (PID: {parent_pid})"
+    except SystemExit as e:
+        print("Success: Active coordinator PID collision check raised SystemExit as expected.")
+        assert "already running" in str(e)
+        
+    # Clean up test root
+    try:
+        storage.delete(test_root)
+    except Exception:
+        pass
+    print("=== LOCK TESTS PASSED SUCCESSFULLY! ===")
+
 if __name__ == "__main__":
     test_integration()
+    test_coordinator_locks()

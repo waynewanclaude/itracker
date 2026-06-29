@@ -3,6 +3,9 @@ import re
 import json
 import sqlite3
 import logging
+import socket
+import getpass
+import subprocess
 
 logger = logging.getLogger("shikibo.coordinator")
 import zipfile
@@ -39,6 +42,11 @@ class CoordinatorService:
     def __init__(self, settings: Settings, storage: FileSystemStorage = None):
         self.settings = settings
         self.storage = storage or FileSystemStorage()
+        
+        # Verify host/user constraints first, then verify process-level active locking
+        self._verify_host_and_user()
+        self._check_and_write_pid()
+
         self.scan_lock = threading.Lock()
         self.observer = None
         
@@ -62,6 +70,107 @@ class CoordinatorService:
         self._init_db()
         self.rebuild_ledger_if_empty()
         logger.info(f"CoordinatorService initialized. Root directory: {self.settings.root_dir}, Database: {self.db_path}")
+
+    def _verify_host_and_user(self) -> None:
+        """Verifies that the coordinator is running on the authorized host and system user."""
+        host_file = Path(self.settings.root_dir) / "system" / "config" / "coordinator_host.json"
+        if not self.storage.exists(host_file):
+            raise SystemExit(
+                f"Error: Coordinator host configuration file is missing at:\n  {host_file}\n"
+                f"Please create this file with the following format:\n"
+                f"  {{\n    \"host\": \"{socket.gethostname()}\",\n    \"user\": \"{getpass.getuser()}\"\n  }}"
+            )
+            
+        try:
+            content = self.storage.read_file_text(host_file)
+            data = json.loads(content)
+        except Exception as e:
+            raise SystemExit(f"Error: Failed to read or parse {host_file}: {e}")
+            
+        config_host = str(data.get("host", "")).strip().lower()
+        config_user = str(data.get("user", "")).strip().lower()
+        
+        current_host = socket.gethostname().strip().lower()
+        current_user = getpass.getuser().strip().lower()
+        
+        if current_host != config_host or current_user != config_user:
+            raise SystemExit(
+                f"Error: Unauthorized host/user configuration.\n"
+                f"Authorized: host='{config_host}', user='{config_user}'\n"
+                f"Current:    host='{current_host}', user='{current_user}'"
+            )
+
+    def _is_coordinator_process_running(self, pid: int) -> bool:
+        """Checks if a process with the given PID is running and is a coordinator process."""
+        if os.name == 'nt':
+            try:
+                cmd = f'wmic process where "ProcessID={pid}" get CommandLine /format:list'
+                output = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.DEVNULL)
+                if "CommandLine=" in output:
+                    cmdline = output.split("CommandLine=", 1)[1].strip()
+                    return "shikibo" in cmdline.lower() or "coordinator" in cmdline.lower()
+            except Exception:
+                pass
+            try:
+                output = subprocess.check_output(f'tasklist /FI "PID eq {pid}" /NH', shell=True, text=True, stderr=subprocess.DEVNULL)
+                return str(pid) in output and ("python" in output.lower() or "shikibo" in output.lower())
+            except Exception:
+                pass
+        else:
+            # POSIX (Linux/macOS)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return False
+                
+            try:
+                cmdline_path = Path(f"/proc/{pid}/cmdline")
+                if cmdline_path.exists():
+                    cmdline = cmdline_path.read_text(encoding="utf-8", errors="ignore").replace("\x00", " ")
+                    return "shikibo" in cmdline.lower() or "coordinator" in cmdline.lower()
+            except Exception:
+                pass
+                
+            try:
+                output = subprocess.check_output(["ps", "-p", str(pid), "-o", "command="], text=True, stderr=subprocess.DEVNULL)
+                return "shikibo" in output.lower() or "coordinator" in output.lower()
+            except Exception:
+                pass
+                
+            return True
+        return False
+
+    def _check_and_write_pid(self) -> None:
+        """Verifies if a coordinator is already running via PID check, otherwise writes current PID."""
+        pid_file = Path(self.settings.root_dir) / "system" / "coordinator" / "coordinator_pid.txt"
+        if self.storage.exists(pid_file):
+            try:
+                content = self.storage.read_file_text(pid_file).strip()
+                existing_pid = int(content)
+                if existing_pid == os.getpid():
+                    # Same process, ignore
+                    return
+                if self._is_coordinator_process_running(existing_pid):
+                    raise SystemExit(
+                        f"Error: Another coordinator process (PID {existing_pid}) is already running on this machine."
+                    )
+            except (ValueError, TypeError):
+                # Invalid PID content in file, ignore and proceed
+                pass
+            except SystemExit:
+                raise
+            except Exception as e:
+                logger.warning(f"Error checking coordinator_pid.txt: {e}. Claiming throne anyway.")
+                
+        own_pid = os.getpid()
+        try:
+            self.storage.makedirs(pid_file.parent)
+            if self.storage.exists(pid_file):
+                self.storage.delete(pid_file)
+            self.storage.write_file_new(pid_file, str(own_pid))
+            logger.info(f"Coordinator claimed the throne. Written PID {own_pid} to {pid_file}")
+        except Exception as e:
+            raise SystemExit(f"Error: Failed to write coordinator PID to {pid_file}: {e}")
 
     def _init_db(self) -> None:
         """Initializes SQLite ledger for distributed message deduplication."""

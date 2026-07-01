@@ -3,6 +3,7 @@
 let activeThreadId = null;
 let currentDraftId = null;
 let config = {};
+let lastMessageIds = [];
 
 // On startup
 document.addEventListener("DOMContentLoaded", async () => {
@@ -148,6 +149,7 @@ async function loadThreads() {
 
 function selectThread(threadId, title, desc, status) {
     activeThreadId = threadId;
+    lastMessageIds = []; // Clear message IDs on thread change to force scrolling
     
     // Highlight active in list
     document.querySelectorAll(".thread-item").forEach(item => {
@@ -181,10 +183,17 @@ async function loadThreadMessages(threadId) {
         const res = await fetch(`/api/threads/${threadId}/messages`);
         const messages = await res.json();
         const container = document.getElementById("message-timeline");
+        
+        // Generate IDs for messages in this render
+        const messageIds = messages.map(msg => `${msg.source_user_id}_${msg.source_local_message_id}_${msg.local_created_at}`);
+        // Check if there are any new messages not in lastMessageIds
+        const hasNewMessages = messageIds.some(id => !lastMessageIds.includes(id));
+        
         container.innerHTML = "";
         
         if (messages.length === 0) {
             container.innerHTML = '<div class="empty-state">No messages in this thread yet.</div>';
+            lastMessageIds = [];
             return;
         }
         
@@ -233,8 +242,13 @@ async function loadThreadMessages(threadId) {
             container.appendChild(card);
         });
         
-        // Auto scroll to bottom
-        container.scrollTop = container.scrollHeight;
+        // Auto scroll to bottom only when there are new messages
+        if (hasNewMessages) {
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        // Update cached IDs
+        lastMessageIds = messageIds;
     } catch (e) {
         console.error("Failed to load thread messages", e);
     }

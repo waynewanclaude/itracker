@@ -8,7 +8,7 @@ from pathlib import Path
 # Add workspace root to python path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shikibo.config import Settings
+from shikibo.config import Settings, BAD_VALUE
 from shikibo.storage import FileSystemStorage
 from shikibo.client.client import ThreadMailClient
 from shikibo.coordinator.service import CoordinatorService
@@ -459,8 +459,128 @@ def test_webapp_thread_api():
         except Exception:
             pass
 
+def test_closed_and_archived_threads():
+    print("=== Testing Closed and Archived Threads Logic ===")
+    from shikibo.config import load_settings
+    from shikibo.storage import FileSystemStorage
+    from shikibo.client.client import ThreadMailClient
+    from shikibo.coordinator.service import CoordinatorService
+    import shutil
+    import os
+    
+    test_root = os.path.join(r"G:\My Drive\shikibo_test", "run_archive_test")
+    if os.path.exists(test_root):
+        shutil.rmtree(test_root)
+    settings = load_settings(root_dir=test_root)
+    storage = FileSystemStorage()
+    storage.makedirs(test_root)
+    
+    client = ThreadMailClient(settings, storage)
+    coord = CoordinatorService(settings, storage)
+    
+    # Create thread
+    thread_id = "T_TEST_CLOSED"
+    thread_dir = Path(settings.thread_root) / thread_id
+    storage.makedirs(thread_dir)
+    storage.makedirs(thread_dir / "messages")
+    storage.write_file_new(
+        thread_dir / "thread.json",
+        json.dumps({
+            "thread_id": thread_id,
+            "title": "Closed Thread Test",
+            "status": "OPEN",
+            "created_at": "2026-07-01T12:00:00Z"
+        }, indent=2)
+    )
+    storage.write_file_new(thread_dir / "README.md", "Desc")
+    
+    # Register client user in registered_users.txt
+    if storage.exists(coord.registered_users_file):
+        storage.delete(coord.registered_users_file)
+    storage.write_file_new(coord.registered_users_file, f"{settings.user_id}\n")
+    
+    # 1. Create a draft and publish while OPEN (should succeed)
+    draft_id = client.create_draft(thread_id, "Hello from active thread")
+    client.publish_draft(draft_id)
+    
+    # Run scan to distribute
+    coord.run_scan()
+    
+    # 2. Mark thread DONE
+    storage.delete(thread_dir / "thread.json")
+    storage.write_file_new(
+        thread_dir / "thread.json",
+        json.dumps({
+            "thread_id": thread_id,
+            "title": "Closed Thread Test",
+            "status": "DONE",
+            "created_at": "2026-07-01T12:00:00Z"
+        }, indent=2)
+    )
+    
+    # 3. Verify create_draft on DONE thread raises BAD_VALUE
+    try:
+        client.create_draft(thread_id, "Drafting to closed thread")
+        assert False, "Should have failed to draft to closed thread"
+    except BAD_VALUE as e:
+        print("Success: drafting to closed thread correctly blocked:", e)
+        
+    # 4. Verify publish_draft on DONE thread raises BAD_VALUE
+    man_draft_id = "draft_manual"
+    man_draft_path = Path(settings.local_draft_root) / f"draft_{man_draft_id}"
+    storage.makedirs(man_draft_path)
+    storage.write_file_new(man_draft_path / "body.md", "Manual publish body")
+    storage.write_file_new(man_draft_path / "draft.json", json.dumps({
+        "draft_id": man_draft_id,
+        "thread_id": thread_id,
+        "attachments": []
+    }))
+    try:
+        client.publish_draft(man_draft_id)
+        assert False, "Should have failed to publish to closed thread"
+    except BAD_VALUE as e:
+        print("Success: publishing to closed thread correctly blocked:", e)
+    
+    # Clean up manual draft
+    storage.delete(man_draft_path)
+    
+    # 5. Archive thread
+    success = coord.archive_thread(thread_id)
+    assert success is True
+    assert not storage.exists(thread_dir)
+    assert storage.exists(Path(settings.archive_root) / f"{thread_id}.zip")
+    print("Success: Thread archived and deleted from active directory.")
+    
+    # 6. Verify client lists the thread in archived list
+    archived_threads = client.list_archived_threads()
+    matching = next((t for t in archived_threads if t["thread_id"] == thread_id), None)
+    assert matching is not None
+    assert matching["status"] == "ARCHIVED"
+    print("Success: Archived thread correctly returned by client list_archived_threads.")
+    
+    # 7. Verify client read_thread_messages reads transparently from zip
+    msgs = client.read_thread_messages(thread_id)
+    assert len(msgs) == 1
+    assert msgs[0]["body"] == "Hello from active thread"
+    print("Success: Zipped thread messages read transparently in-memory.")
+    
+    # 8. Verify client create_draft on archived thread raises BAD_VALUE
+    try:
+        client.create_draft(thread_id, "Drafting to archived thread")
+        assert False, "Should have failed to draft to archived thread"
+    except BAD_VALUE as e:
+        print("Success: drafting to archived thread correctly blocked:", e)
+        assert "archived and closed" in str(e)
+        
+    # Clean up test root
+    try:
+        shutil.rmtree(test_root)
+    except Exception:
+        pass
+
 if __name__ == "__main__":
     test_integration()
     test_coordinator_locks()
     test_settings_validation()
     test_webapp_thread_api()
+    test_closed_and_archived_threads()

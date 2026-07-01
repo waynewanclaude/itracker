@@ -121,6 +121,7 @@ async function loadConfig() {
 
 async function refreshAll() {
     await loadThreads();
+    await loadArchivedThreads();
     await loadPending();
     recordUIUpdate();
 }
@@ -130,6 +131,7 @@ async function pollUpdates() {
     if (activeThreadId) {
         await loadThreadMessages(activeThreadId);
     }
+    await loadArchivedThreads();
     await loadPending();
     recordUIUpdate();
 }
@@ -206,6 +208,37 @@ async function loadThreads() {
     } catch (e) {
         console.error("Failed to load threads", e);
     }
+async function loadArchivedThreads() {
+    try {
+        const res = await fetch("/api/threads/archived");
+        const threads = await res.json();
+        const container = document.getElementById("archived-thread-list");
+        if (!container) return;
+        container.innerHTML = "";
+        
+        if (threads.length === 0) {
+            container.innerHTML = '<div class="empty-state" style="font-size:0.8rem; padding:10px;">No archived threads</div>';
+            return;
+        }
+        
+        threads.forEach(t => {
+            const item = document.createElement("div");
+            item.className = `thread-item archived ${t.thread_id === activeThreadId ? 'active' : ''}`;
+            item.dataset.threadId = t.thread_id;
+            
+            let displayId = t.thread_id;
+            if (displayId.startsWith("T_")) {
+                displayId = displayId.slice(2);
+            }
+            displayId = displayId.slice(0, 16);
+            
+            item.textContent = `${t.title} (${displayId})`;
+            item.addEventListener("click", () => selectThread(t.thread_id, t.title, t.description_md || "", t.status, t.hostname, t.created_at));
+            container.appendChild(item);
+        });
+    } catch (e) {
+        console.error("Failed to load archived threads", e);
+    }
 }
 
 function selectThread(threadId, title, desc, status, hostname, createdAt) {
@@ -248,7 +281,7 @@ function selectThread(threadId, title, desc, status, hostname, createdAt) {
     loadThreadMessages(threadId);
     
     // Load or initialize draft
-    setupDraftForThread(threadId);
+    setupDraftForThread(threadId, status);
 }
 
 async function loadThreadMessages(threadId) {
@@ -410,7 +443,13 @@ async function submitNewThread() {
 
 // --- Draft & Composer Operations ---
 
-async function setupDraftForThread(threadId) {
+async function setupDraftForThread(threadId, status) {
+    if (status === "DONE" || status === "ARCHIVED") {
+        document.getElementById("composer-area").style.display = "none";
+        document.getElementById("closed-thread-notice").style.display = "block";
+        return;
+    }
+    document.getElementById("closed-thread-notice").style.display = "none";
     document.getElementById("composer-area").style.display = "block";
     document.getElementById("composer-body").value = "";
     document.getElementById("draft-attachments-list").innerHTML = "";

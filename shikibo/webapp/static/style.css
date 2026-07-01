@@ -140,6 +140,20 @@ h3 {
     opacity: 0.6;
 }
 
+.thread-item.archived {
+    background-color: var(--sidebar-bg);
+    border-color: var(--border-color);
+    color: var(--secondary-color);
+    opacity: 0.75;
+}
+
+.thread-item.archived:hover, .thread-item.archived.active {
+    background-color: var(--primary-color);
+    color: #ffffff;
+    border-color: var(--primary-color);
+    opacity: 1;
+}
+
 .sidebar-footer {
     border-top: 1px solid var(--border-color);
     padding-top: 15px;

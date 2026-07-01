@@ -26,12 +26,16 @@
             </div>
             
             <nav class="sidebar-nav">
-                <h3>Threads</h3>
+                <h3>Active Threads</h3>
                 <div class="thread-list" id="thread-list" style="margin-bottom: 10px;">
                     <!-- Loaded dynamically -->
                 </div>
                 <button class="btn btn-secondary btn-full" id="btn-new-thread" style="margin-bottom: 20px;">+ New Thread</button>
 
+                <h3>Archived Threads</h3>
+                <div class="thread-list" id="archived-thread-list" style="margin-bottom: 10px;">
+                    <!-- Loaded dynamically -->
+                </div>
             </nav>
             
             <div class="sidebar-footer">
@@ -58,6 +62,11 @@
                     <div class="empty-state">No thread selected</div>
                 </div>
                 
+                <!-- Closed Thread Notification -->
+                <div class="composer" id="closed-thread-notice" style="display: none; background-color: var(--sidebar-bg); border-color: var(--border-color); text-align: center; padding: 20px; font-weight: 500; color: var(--secondary-color);">
+                    This thread is marked DONE and closed. No further messages can be posted.
+                </div>
+
                 <!-- Composer (Draft) Area -->
                 <div class="composer" id="composer-area" style="display: none;">
                     <h3>Compose Draft</h3>

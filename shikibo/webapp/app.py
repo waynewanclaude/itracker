@@ -36,6 +36,34 @@ def notify_clients(event_name="refresh"):
 def serve_attachment(thread_id: str, msg_folder: str, filename: str):
     attachments_dir = Path(settings.thread_root) / thread_id / "messages" / msg_folder / "attachments"
     if not os.path.exists(attachments_dir):
+        archive_path = Path(settings.archive_root) / f"{thread_id}.zip"
+        if os.path.exists(archive_path):
+            import zipfile
+            from flask import send_file
+            import io
+            import mimetypes
+            try:
+                possible_paths = [
+                    f"messages/{msg_folder}/attachments/{filename}",
+                    f"{thread_id}/messages/{msg_folder}/attachments/{filename}"
+                ]
+                with zipfile.ZipFile(str(archive_path)) as zf:
+                    found_path = None
+                    for p in possible_paths:
+                        if p in zf.namelist():
+                            found_path = p
+                            break
+                    if found_path:
+                        data = zf.read(found_path)
+                        mimetype, _ = mimetypes.guess_type(filename)
+                        return send_file(
+                            io.BytesIO(data),
+                            mimetype=mimetype or "application/octet-stream",
+                            as_attachment=True,
+                            download_name=filename
+                        )
+            except Exception as e:
+                logger.error(f"Error serving attachment from zip: {e}")
         return "Attachment folder not found", 404
     return send_from_directory(directory=str(attachments_dir), path=filename)
 
@@ -66,6 +94,10 @@ def list_users():
 @app.route("/api/threads", methods=["GET"])
 def list_threads():
     return jsonify(client.list_active_threads())
+
+@app.route("/api/threads/archived", methods=["GET"])
+def list_archived_threads():
+    return jsonify(client.list_archived_threads())
 
 @app.route("/api/threads/next-id", methods=["GET"])
 def get_next_thread_id():
@@ -169,6 +201,8 @@ def create_draft():
     try:
         draft_id = client.create_draft(thread_id, body)
         return jsonify({"status": "success", "draft_id": draft_id})
+    except BAD_VALUE as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

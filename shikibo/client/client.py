@@ -41,6 +41,24 @@ class ThreadMailClient:
 
     def create_draft(self, thread_id: str, body: str = "", attachments: List[str] = None) -> str:
         """Creates a local, mutable draft and returns the draft_id."""
+        archive_file = Path(self.settings.archive_root) / f"{thread_id}.zip"
+        thread_dir = Path(self.settings.thread_root) / thread_id
+        thread_meta_file = thread_dir / "thread.json"
+        
+        if not self.storage.exists(thread_meta_file):
+            if self.storage.exists(archive_file):
+                raise BAD_VALUE(f"Target thread {thread_id} is archived and closed.")
+            raise ValueError(f"Target thread {thread_id} does not exist in the shared workspace.")
+            
+        try:
+            thread_meta = json.loads(self.storage.read_file_text(thread_meta_file))
+            if thread_meta.get("status") == "DONE":
+                raise BAD_VALUE(f"Target thread {thread_id} is marked DONE and closed.")
+        except BAD_VALUE:
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to verify thread status: {e}")
+
         draft_id = str(uuid.uuid4())[:8]
         draft_path = self._get_draft_path(draft_id)
         self.storage.makedirs(draft_path)
@@ -230,11 +248,25 @@ class ThreadMailClient:
         if not body_text or not body_text.strip():
             raise BAD_VALUE("Message body cannot be empty.")
         
-        # Verify target thread exists
+        # Verify target thread exists and is not closed/archived
         thread_id = draft_data.get("thread_id")
+        archive_file = Path(self.settings.archive_root) / f"{thread_id}.zip"
         thread_dir = Path(self.settings.thread_root) / thread_id
-        if not self.storage.exists(thread_dir / "thread.json"):
+        thread_meta_file = thread_dir / "thread.json"
+        
+        if not self.storage.exists(thread_meta_file):
+            if self.storage.exists(archive_file):
+                raise BAD_VALUE(f"Target thread {thread_id} is archived and closed.")
             raise ValueError(f"Target thread {thread_id} does not exist in the shared workspace.")
+            
+        try:
+            thread_meta = json.loads(self.storage.read_file_text(thread_meta_file))
+            if thread_meta.get("status") == "DONE":
+                raise BAD_VALUE(f"Target thread {thread_id} is marked DONE and closed.")
+        except BAD_VALUE:
+            raise
+        except Exception as e:
+            raise ValueError(f"Failed to verify thread status: {e}")
             
         # 1. Assign next local message ID
         msg_id = self._generate_next_local_message_id()
@@ -332,15 +364,47 @@ class ThreadMailClient:
         return threads
 
     def read_thread_messages(self, thread_id: str) -> List[Dict[str, Any]]:
-        """Reads all distributed messages in a thread folder."""
-        messages = []
+        """Reads all distributed messages in a thread folder, transparently reading from zip if archived."""
         thread_messages_path = Path(self.settings.thread_root) / thread_id / "messages"
         if not self.storage.exists(thread_messages_path):
+            archive_path = Path(self.settings.archive_root) / f"{thread_id}.zip"
+            if self.storage.exists(archive_path):
+                import zipfile
+                import collections
+                messages = []
+                try:
+                    with zipfile.ZipFile(str(archive_path)) as zf:
+                        msg_folders = collections.defaultdict(dict)
+                        for name in zf.namelist():
+                            parts = name.split("/")
+                            if len(parts) >= 2 and parts[0] == thread_id:
+                                parts = parts[1:]
+                            if len(parts) >= 3 and parts[0] == "messages":
+                                folder_name = parts[1]
+                                sub_file = parts[2]
+                                if sub_file == "message.json":
+                                    msg_folders[folder_name]["meta"] = zf.read(name).decode("utf-8")
+                                elif sub_file == "body.md":
+                                    msg_folders[folder_name]["body"] = zf.read(name).decode("utf-8")
+                        
+                        for folder_name, contents in msg_folders.items():
+                            if "meta" in contents:
+                                try:
+                                    meta = json.loads(contents["meta"])
+                                    meta["body"] = contents.get("body", "")
+                                    meta["folder_name"] = folder_name
+                                    messages.append(meta)
+                                except Exception:
+                                    pass
+                    messages.sort(key=lambda m: m.get("distributed_counter", 0))
+                    return messages
+                except Exception as e:
+                    logger.error(f"Error reading messages from zip: {e}")
+                    return []
             return []
             
+        messages = []
         entries = self.storage.list_dir(thread_messages_path)
-        # Naming format: <timestamp>_<counter>_<user_id>_<local_id>
-        # Sort naturally using filename to guarantee distribution order
         for name in sorted(entries):
             msg_path = thread_messages_path / name
             if self.storage.is_dir(msg_path):
@@ -355,6 +419,38 @@ class ThreadMailClient:
                     except Exception:
                         pass
         return messages
+
+    def list_archived_threads(self) -> List[Dict[str, Any]]:
+        """Scans the archive root for zipped threads and parses their metadata."""
+        threads = []
+        if not self.storage.exists(self.settings.archive_root):
+            return []
+            
+        import zipfile
+        entries = self.storage.list_dir(self.settings.archive_root)
+        for name in entries:
+            if name.endswith(".zip") and name.startswith("T_"):
+                thread_id = name[:-4]
+                zip_path = Path(self.settings.archive_root) / name
+                try:
+                    with zipfile.ZipFile(str(zip_path)) as zf:
+                        possible_paths = ["thread.json", f"{thread_id}/thread.json"]
+                        found_path = None
+                        for p in possible_paths:
+                            if p in zf.namelist():
+                                found_path = p
+                                break
+                                
+                        if found_path:
+                            meta = json.loads(zf.read(found_path).decode("utf-8"))
+                            readme_path = found_path.replace("thread.json", "README.md")
+                            if readme_path in zf.namelist():
+                                meta["description_md"] = zf.read(readme_path).decode("utf-8")
+                            meta["status"] = "ARCHIVED"
+                            threads.append(meta)
+                except Exception:
+                    pass
+        return threads
 
     def list_receipts(self) -> List[Dict[str, Any]]:
         """Lists all receipts received from the coordinator."""

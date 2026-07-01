@@ -617,7 +617,8 @@ class CoordinatorService:
         if not self.storage.exists(thread_dir):
             return False
             
-        archive_file = Path(self.settings.archive_root) / f"T_{thread_id}.zip"
+        prefix = "" if thread_id.startswith("T_") else "T_"
+        archive_file = Path(self.settings.archive_root) / f"{prefix}{thread_id}.zip"
         if self.storage.exists(archive_file):
             return False
             

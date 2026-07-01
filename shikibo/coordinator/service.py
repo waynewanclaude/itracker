@@ -70,8 +70,8 @@ class CoordinatorService:
 
     def write_status_file(self, message: str) -> None:
         """Writes/overwrites a timestamped status file `<hostname>-<PID>.txt` in system/coordinator."""
-        from datetime import datetime
-        ts = datetime.now().astimezone().replace(microsecond=0).isoformat()
+        from datetime import datetime, timezone
+        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
         hostname = socket.gethostname()
         pid = os.getpid()
         status_file = Path(self.settings.root_dir) / "system" / "coordinator" / f"{hostname}-{pid}.txt"

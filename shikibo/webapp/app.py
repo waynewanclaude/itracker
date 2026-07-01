@@ -69,33 +69,31 @@ def list_threads():
 
 @app.route("/api/threads/next-id", methods=["GET"])
 def get_next_thread_id():
+    title = request.args.get("title", "")
+    import socket
+    import hashlib
     from datetime import datetime, timezone
-    import re
-    try:
-        storage.list_dir(Path(settings.thread_root))
-    except Exception:
-        pass
-    today_str = datetime.now(timezone.utc).strftime("%Y%m%d")
-    prefix = f"T_{today_str}_"
-    pattern = re.compile(rf"^T_{today_str}_([0-9]+)$")
-    existing_seqs = []
-    if storage.exists(settings.thread_root):
-        for item in storage.list_dir(settings.thread_root):
-            match = pattern.match(item)
-            if match:
-                try:
-                    existing_seqs.append(int(match.group(1)))
-                except ValueError:
-                    pass
-    next_seq = 1
-    if existing_seqs:
-        next_seq = max(existing_seqs) + 1
-    while True:
-        proposed_id = f"{prefix}{next_seq:04d}"
-        proposed_dir = Path(settings.thread_root) / proposed_id
-        if not storage.exists(proposed_dir):
-            return jsonify({"thread_id": proposed_id})
-        next_seq += 1
+    hostname = socket.gethostname()
+    user = settings.user_id
+    role = settings.role
+    
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    input_str = f"{hostname}/{user}/{role}/{timestamp}/{title}"
+    checksum = hashlib.sha512(input_str.encode("utf-8")).hexdigest()
+    proposed_id = f"T_{checksum}"
+    
+    active_dir = Path(settings.thread_root) / proposed_id
+    archive_file = Path(settings.archive_root) / f"{proposed_id}.zip"
+    
+    while storage.exists(active_dir) or storage.exists(archive_file):
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        input_str = f"{hostname}/{user}/{role}/{timestamp}/{title}"
+        checksum = hashlib.sha512(input_str.encode("utf-8")).hexdigest()
+        proposed_id = f"T_{checksum}"
+        active_dir = Path(settings.thread_root) / proposed_id
+        archive_file = Path(settings.archive_root) / f"{proposed_id}.zip"
+        
+    return jsonify({"thread_id": proposed_id})
 
 @app.route("/api/threads", methods=["POST"])
 def create_thread():
@@ -108,7 +106,9 @@ def create_thread():
         return jsonify({"error": "Missing thread_id or title"}), 400
         
     thread_dir = Path(settings.thread_root) / thread_id
-    if storage.exists(thread_dir):
+    archive_file = Path(settings.archive_root) / f"{thread_id}.zip"
+    
+    if storage.exists(thread_dir) or storage.exists(archive_file):
         return jsonify({"error": "Thread already exists"}), 400
         
     storage.makedirs(thread_dir)

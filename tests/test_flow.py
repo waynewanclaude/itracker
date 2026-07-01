@@ -259,6 +259,11 @@ def test_coordinator_locks():
         status_content = storage.read_file_text(status_file)
         assert "Exit:" in status_content
         assert "missing" in status_content
+        
+        # Check GMT timestamp (ends with 'Z')
+        timestamp_line = status_content.splitlines()[0]
+        assert timestamp_line.endswith("Z")
+        print("Success: GMT timestamp format ending with 'Z' verified.")
         print("Success: Missing host status file verified.")
         
     # 2. Test mismatched coordinator_host.json raises SystemExit
@@ -388,7 +393,63 @@ def test_settings_validation():
     
     print("=== SETTINGS VALIDATION TESTS PASSED SUCCESSFULLY! ===")
 
+def test_webapp_thread_api():
+    print("=== Testing WebApp Thread API (Distributed ID & Duplicates) ===")
+    from shikibo.webapp import app as webapp_module
+    from shikibo.webapp.app import app
+    from shikibo.config import load_settings
+    from shikibo.storage import FileSystemStorage
+    from shikibo.client.client import ThreadMailClient
+    from shikibo.coordinator.service import CoordinatorService
+    import shutil
+    import os
+    
+    test_root = os.path.join(r"G:\My Drive\shikibo_test", "run_api_test")
+    settings = load_settings(root_dir=test_root)
+    storage = FileSystemStorage()
+    storage.makedirs(test_root)
+    
+    webapp_module.settings = settings
+    webapp_module.storage = storage
+    webapp_module.client = ThreadMailClient(settings, storage)
+    webapp_module.coordinator = CoordinatorService(settings, storage)
+    
+    with app.test_client() as client:
+        res = client.get("/api/threads/next-id?title=My%20Test%20Thread")
+        assert res.status_code == 200
+        data = res.get_json()
+        thread_id = data["thread_id"]
+        assert thread_id.startswith("T_")
+        assert len(thread_id) == 130 # 'T_' + 128 hex digits
+        print("Success: Generated thread ID format verified.")
+        
+        res = client.post("/api/threads", json={
+            "thread_id": thread_id,
+            "title": "My Test Thread",
+            "description": "My test thread desc"
+        })
+        assert res.status_code == 200
+        print("Success: Thread created successfully via API.")
+        
+        res = client.post("/api/threads", json={
+            "thread_id": thread_id,
+            "title": "Another title",
+            "description": "Another desc"
+        })
+        assert res.status_code == 400
+        print("Success: Duplicate thread ID correctly rejected with 400.")
+        
+        # Clean up
+        thread_dir = Path(settings.thread_root) / thread_id
+        if os.path.exists(thread_dir):
+            shutil.rmtree(thread_dir)
+        try:
+            storage.delete(test_root)
+        except Exception:
+            pass
+
 if __name__ == "__main__":
     test_integration()
     test_coordinator_locks()
     test_settings_validation()
+    test_webapp_thread_api()

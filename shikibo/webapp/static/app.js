@@ -55,6 +55,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     });
     document.getElementById("composer-body").addEventListener("input", updatePublishButtonState);
+    document.getElementById("thread-title-input").addEventListener("input", updateThreadId);
 });
 
 function getFolderHash(str) {
@@ -305,8 +306,15 @@ async function markThreadDone() {
 
 async function openNewThreadModal() {
     document.getElementById("new-thread-modal").style.display = "flex";
+    document.getElementById("thread-title-input").value = "";
+    document.getElementById("thread-desc-input").value = "";
+    await updateThreadId();
+}
+
+async function updateThreadId() {
+    const title = document.getElementById("thread-title-input").value.trim();
     try {
-        const res = await fetch("/api/threads/next-id");
+        const res = await fetch(`/api/threads/next-id?title=${encodeURIComponent(title)}`);
         if (res.ok) {
             const data = await res.json();
             document.getElementById("thread-id-input").value = data.thread_id;

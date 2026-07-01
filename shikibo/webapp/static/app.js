@@ -208,6 +208,8 @@ async function loadThreads() {
     } catch (e) {
         console.error("Failed to load threads", e);
     }
+}
+
 async function loadArchivedThreads() {
     try {
         const res = await fetch("/api/threads/archived");

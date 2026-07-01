@@ -5,6 +5,7 @@ let currentDraftId = null;
 let config = {};
 let lastMessageIds = [];
 let pollingPaused = false;
+let lastUpdateTime = Date.now();
 
 // On startup
 document.addEventListener("DOMContentLoaded", async () => {
@@ -30,6 +31,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         // Set up recurring poll (every 5 seconds) to fetch messages, pending outbox, and receipts
         setInterval(pollUpdates, 5000);
     }
+    
+    // Update the last update elapsed time display every second
+    setInterval(updateElapsedText, 1000);
+    updateElapsedText();
     
     // Bind UI actions
     document.getElementById("btn-new-thread").addEventListener("click", openNewThreadModal);
@@ -108,6 +113,7 @@ async function loadConfig() {
         
         // Update Title Bar Color dynamically
         updateTitleBarColor(folderName);
+        recordUIUpdate();
     } catch (e) {
         console.error("Failed to load config", e);
     }
@@ -116,6 +122,7 @@ async function loadConfig() {
 async function refreshAll() {
     await loadThreads();
     await loadPending();
+    recordUIUpdate();
 }
 
 async function pollUpdates() {
@@ -124,6 +131,7 @@ async function pollUpdates() {
         await loadThreadMessages(activeThreadId);
     }
     await loadPending();
+    recordUIUpdate();
 }
 
 async function togglePauseResume() {
@@ -143,6 +151,24 @@ async function togglePauseResume() {
         await refreshAll();
         if (activeThreadId) {
             await loadThreadMessages(activeThreadId);
+        }
+    }
+    updateElapsedText();
+}
+
+function recordUIUpdate() {
+    lastUpdateTime = Date.now();
+    updateElapsedText();
+}
+
+function updateElapsedText() {
+    const elapsedSeconds = Math.floor((Date.now() - lastUpdateTime) / 1000);
+    const container = document.getElementById("last-update-elapsed");
+    if (container) {
+        if (pollingPaused) {
+            container.textContent = `Last update: ${elapsedSeconds}s ago (Paused)`;
+        } else {
+            container.textContent = `Last update: ${elapsedSeconds}s ago`;
         }
     }
 }
@@ -296,6 +322,7 @@ async function loadThreadMessages(threadId) {
         
         // Update cached IDs
         lastMessageIds = messageIds;
+        recordUIUpdate();
     } catch (e) {
         console.error("Failed to load thread messages", e);
     }

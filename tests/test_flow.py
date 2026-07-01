@@ -431,6 +431,17 @@ def test_webapp_thread_api():
         assert res.status_code == 200
         print("Success: Thread created successfully via API.")
         
+        # Verify metadata fields are recorded and returned
+        res_list = client.get("/api/threads")
+        assert res_list.status_code == 200
+        threads_list = res_list.get_json()
+        matching_thread = next((t for t in threads_list if t["thread_id"] == thread_id), None)
+        assert matching_thread is not None
+        assert "hostname" in matching_thread
+        assert "created_at" in matching_thread
+        assert matching_thread["created_at"].endswith("Z")
+        print("Success: Thread metadata (hostname & GMT timestamp) verified.")
+        
         res = client.post("/api/threads", json={
             "thread_id": thread_id,
             "title": "Another title",

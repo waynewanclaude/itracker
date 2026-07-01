@@ -164,8 +164,17 @@ async function loadThreads() {
         threads.forEach(t => {
             const item = document.createElement("div");
             item.className = `thread-item ${t.thread_id === activeThreadId ? 'active' : ''} ${t.status === 'DONE' ? 'done' : ''}`;
-            item.textContent = `${t.title} (${t.thread_id})`;
-            item.addEventListener("click", () => selectThread(t.thread_id, t.title, t.description_md || "", t.status));
+            item.dataset.threadId = t.thread_id;
+            
+            // Truncate thread ID to first 16 hex digits (stripping T_ prefix)
+            let displayId = t.thread_id;
+            if (displayId.startsWith("T_")) {
+                displayId = displayId.slice(2);
+            }
+            displayId = displayId.slice(0, 16);
+            
+            item.textContent = `${t.title} (${displayId})`;
+            item.addEventListener("click", () => selectThread(t.thread_id, t.title, t.description_md || "", t.status, t.hostname, t.created_at));
             container.appendChild(item);
         });
     } catch (e) {
@@ -173,13 +182,13 @@ async function loadThreads() {
     }
 }
 
-function selectThread(threadId, title, desc, status) {
+function selectThread(threadId, title, desc, status, hostname, createdAt) {
     activeThreadId = threadId;
     lastMessageIds = []; // Clear message IDs on thread change to force scrolling
     
     // Highlight active in list
     document.querySelectorAll(".thread-item").forEach(item => {
-        if (item.textContent.includes(threadId)) {
+        if (item.dataset.threadId === threadId) {
             item.classList.add("active");
         } else {
             item.classList.remove("active");
@@ -189,6 +198,15 @@ function selectThread(threadId, title, desc, status) {
     // Show header info
     document.getElementById("active-thread-title").textContent = title;
     document.getElementById("active-thread-desc").textContent = desc || "No description provided";
+    
+    // Show metadata details in small font
+    const metaDiv = document.getElementById("active-thread-meta");
+    if (hostname && createdAt) {
+        metaDiv.textContent = `Host: ${hostname} | Created (GMT): ${createdAt}`;
+        metaDiv.style.display = "block";
+    } else {
+        metaDiv.style.display = "none";
+    }
     
     const pauseBtn = document.getElementById("btn-pause-resume");
     pauseBtn.style.display = "block";

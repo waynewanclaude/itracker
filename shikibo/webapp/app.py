@@ -115,20 +115,21 @@ def create_thread():
     storage.makedirs(thread_dir / "messages")
     
     # Save thread.json
-    thread_meta = {
-        "thread_id": thread_id,
-        "title": title,
-        "status": "OPEN",
-        "created_at": storage.write_file_new(
-            thread_dir / "thread.json",
-            json.dumps({
-                "thread_id": thread_id,
-                "title": title,
-                "status": "OPEN",
-                "created_at": datetime_now()
-            }, indent=2)
-        )
-    }
+    import socket
+    from datetime import datetime, timezone
+    created_at_gmt = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    hostname = socket.gethostname()
+    
+    storage.write_file_new(
+        thread_dir / "thread.json",
+        json.dumps({
+            "thread_id": thread_id,
+            "title": title,
+            "status": "OPEN",
+            "created_at": created_at_gmt,
+            "hostname": hostname
+        }, indent=2)
+    )
     
     # Save README.md as the description
     storage.write_file_new(thread_dir / "README.md", description)

@@ -218,7 +218,7 @@ h3 {
 
 .message-card.self {
     align-self: flex-start;
-    background-color: var(--sidebar-bg);
+    background-color: #fff0f2;
 }
 
 .message-meta {

@@ -451,6 +451,13 @@ h3 {
     font-family: inherit;
 }
 
+.form-group input:disabled, .form-group textarea:disabled {
+    background-color: var(--sidebar-bg);
+    color: var(--secondary-color);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 .form-group textarea {
     height: 80px;
     resize: none;

@@ -275,7 +275,7 @@ function selectThread(threadId, title, desc, status, hostname, createdAt, creato
     
     // Ownership checks for status controls (Lock, Archive)
     const currentUser = config.role ? `${config.user_id}/${config.role}` : config.user_id;
-    const isOwner = (!creatorUserId || creatorUserId === currentUser);
+    const isOwner = (creatorUserId && creatorUserId === currentUser);
     
     const toggleLockBtn = document.getElementById("btn-toggle-lock");
     const archiveBtn = document.getElementById("btn-archive");

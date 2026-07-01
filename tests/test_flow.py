@@ -56,7 +56,7 @@ def test_integration():
     thread_meta = {
         "thread_id": thread_id,
         "title": "Integration Test Topic",
-        "status": "OPEN",
+        "status": "UNLOCK",
         "created_at": "2026-06-27T23:30:34Z"
     }
     storage.write_file_new(thread_dir / "thread.json", json.dumps(thread_meta, indent=2))
@@ -488,7 +488,7 @@ def test_closed_and_archived_threads():
         json.dumps({
             "thread_id": thread_id,
             "title": "Closed Thread Test",
-            "status": "OPEN",
+            "status": "UNLOCK",
             "created_at": "2026-07-01T12:00:00Z"
         }, indent=2)
     )
@@ -506,26 +506,26 @@ def test_closed_and_archived_threads():
     # Run scan to distribute
     coord.run_scan()
     
-    # 2. Mark thread DONE
+    # 2. Mark thread LOCK
     storage.delete(thread_dir / "thread.json")
     storage.write_file_new(
         thread_dir / "thread.json",
         json.dumps({
             "thread_id": thread_id,
             "title": "Closed Thread Test",
-            "status": "DONE",
+            "status": "LOCK",
             "created_at": "2026-07-01T12:00:00Z"
         }, indent=2)
     )
     
-    # 3. Verify create_draft on DONE thread raises BAD_VALUE
+    # 3. Verify create_draft on LOCK thread raises BAD_VALUE
     try:
         client.create_draft(thread_id, "Drafting to closed thread")
         assert False, "Should have failed to draft to closed thread"
     except BAD_VALUE as e:
         print("Success: drafting to closed thread correctly blocked:", e)
         
-    # 4. Verify publish_draft on DONE thread raises BAD_VALUE
+    # 4. Verify publish_draft on LOCK thread raises BAD_VALUE
     man_draft_id = "draft_manual"
     man_draft_path = Path(settings.local_draft_root) / f"draft_{man_draft_id}"
     storage.makedirs(man_draft_path)
@@ -578,9 +578,129 @@ def test_closed_and_archived_threads():
     except Exception:
         pass
 
+def test_restricted_threads():
+    print("=== Testing Restricted Threads and WebApp Cycling API ===")
+    from shikibo.config import load_settings
+    from shikibo.storage import FileSystemStorage
+    from shikibo.client.client import ThreadMailClient
+    from shikibo.coordinator.service import CoordinatorService
+    import shutil
+    import os
+    
+    test_root = os.path.join(r"G:\My Drive\shikibo_test", "run_restricted_test")
+    if os.path.exists(test_root):
+        shutil.rmtree(test_root)
+    settings = load_settings(root_dir=test_root, user_id="creator_user")
+    storage = FileSystemStorage()
+    storage.makedirs(test_root)
+    
+    # Register creator_user
+    coord = CoordinatorService(settings, storage)
+    if storage.exists(coord.registered_users_file):
+        storage.delete(coord.registered_users_file)
+    storage.write_file_new(coord.registered_users_file, "creator_user\n")
+    
+    client_creator = ThreadMailClient(settings, storage)
+    
+    # 1. Create thread with creator_user as creator and status UNLOCK
+    thread_id = "T_TEST_RESTRICT"
+    thread_dir = Path(settings.thread_root) / thread_id
+    storage.makedirs(thread_dir)
+    storage.makedirs(thread_dir / "messages")
+    storage.write_file_new(
+        thread_dir / "thread.json",
+        json.dumps({
+            "thread_id": thread_id,
+            "title": "Restricted Thread Test",
+            "status": "UNLOCK",
+            "created_at": "2026-07-01T12:00:00Z",
+            "creator_user_id": "creator_user"
+        }, indent=2)
+    )
+    storage.write_file_new(thread_dir / "README.md", "Desc")
+    
+    # Verify creator can draft/publish when UNLOCK
+    draft1 = client_creator.create_draft(thread_id, "Creator message when UNLOCK")
+    client_creator.publish_draft(draft1)
+    
+    coord.run_scan()
+    
+    # 2. Update status to RESTRICT
+    meta = json.loads(storage.read_file_text(thread_dir / "thread.json"))
+    meta["status"] = "RESTRICT"
+    storage.delete(thread_dir / "thread.json")
+    storage.write_file_new(thread_dir / "thread.json", json.dumps(meta, indent=2))
+    
+    # Verify creator can still draft/publish when RESTRICTED
+    draft2 = client_creator.create_draft(thread_id, "Creator message when RESTRICTED")
+    client_creator.publish_draft(draft2)
+    coord.run_scan()
+    
+    # 3. Setup client for non-creator user
+    other_settings = load_settings(root_dir=test_root, user_id="other_user")
+    client_other = ThreadMailClient(other_settings, storage)
+    
+    # Verify non-creator cannot draft to RESTRICTED thread
+    try:
+        client_other.create_draft(thread_id, "Non-creator message")
+        assert False, "Should have blocked non-creator drafting to RESTRICTED thread"
+    except BAD_VALUE as e:
+        print("Success: non-creator draft check blocked correctly:", e)
+        assert "restricted to its creator only" in str(e)
+        
+    # Verify non-creator cannot publish manually to RESTRICTED thread
+    man_draft_id = "draft_non_creator"
+    man_draft_path = Path(other_settings.local_draft_root) / f"draft_{man_draft_id}"
+    storage.makedirs(man_draft_path)
+    storage.write_file_new(man_draft_path / "body.md", "Non-creator manual publish")
+    storage.write_file_new(man_draft_path / "draft.json", json.dumps({
+        "draft_id": man_draft_id,
+        "thread_id": thread_id,
+        "attachments": []
+    }))
+    try:
+        client_other.publish_draft(man_draft_id)
+        assert False, "Should have blocked non-creator manual publishing to RESTRICTED thread"
+    except BAD_VALUE as e:
+        print("Success: non-creator manual publish check blocked correctly:", e)
+        assert "restricted to its creator only" in str(e)
+        
+    storage.delete(man_draft_path)
+    
+    # 4. Verify coordinator rejects non-creator outbox package for RESTRICTED thread
+    if storage.exists(coord.registered_users_file):
+        storage.delete(coord.registered_users_file)
+    storage.write_file_new(coord.registered_users_file, "creator_user\nother_user\n")
+    
+    outbox_pkg = Path(other_settings.outbox_root) / "msg_0001_suffix"
+    storage.makedirs(outbox_pkg)
+    storage.write_file_new(outbox_pkg / "message.json", json.dumps({
+        "schema_version": "1.0",
+        "source_user_id": "other_user/__DEF__",
+        "source_local_message_id": "1",
+        "target_thread_id": thread_id,
+        "mentions": [],
+        "attachments": [],
+        "local_created_at": "2026-07-01T12:00:00Z"
+    }))
+    storage.write_file_new(outbox_pkg / "body.md", "Direct package write")
+    
+    scan_res = coord.run_scan()
+    assert scan_res["processed"] == 0
+    assert scan_res["dead_lettered"] == 1
+    print("Success: Coordinator rejected and dead-lettered non-creator package for RESTRICTED thread.")
+    
+    # Clean up test root
+    try:
+        shutil.rmtree(test_root)
+    except Exception:
+        pass
+    print("=== RESTRICTED THREADS TESTS PASSED SUCCESSFULLY! ===")
+
 if __name__ == "__main__":
     test_integration()
     test_coordinator_locks()
     test_settings_validation()
     test_webapp_thread_api()
     test_closed_and_archived_threads()
+    test_restricted_threads()

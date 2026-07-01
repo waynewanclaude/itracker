@@ -146,20 +146,22 @@ def create_thread():
     storage.makedirs(thread_dir)
     storage.makedirs(thread_dir / "messages")
     
-    # Save thread.json
+    # Save thread.json with UNLOCK status and creator_user_id
     import socket
     from datetime import datetime, timezone
     created_at_gmt = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     hostname = socket.gethostname()
+    creator_user_id = f"{settings.user_id}/{settings.role}" if settings.role else settings.user_id
     
     storage.write_file_new(
         thread_dir / "thread.json",
         json.dumps({
             "thread_id": thread_id,
             "title": title,
-            "status": "OPEN",
+            "status": "UNLOCK",
             "created_at": created_at_gmt,
-            "hostname": hostname
+            "hostname": hostname,
+            "creator_user_id": creator_user_id
         }, indent=2)
     )
     
@@ -171,21 +173,55 @@ def create_thread():
 def get_messages(thread_id: str):
     return jsonify(client.read_thread_messages(thread_id))
 
-@app.route("/api/threads/<thread_id>/done", methods=["POST"])
-def mark_thread_done(thread_id: str):
+@app.route("/api/threads/<thread_id>/status", methods=["POST"])
+def update_thread_status(thread_id: str):
+    thread_meta_path = Path(settings.thread_root) / thread_id / "thread.json"
+    if not storage.exists(thread_meta_path):
+        return jsonify({"error": "Thread not found"}), 404
+        
+    data = request.json or {}
+    new_status = data.get("status")
+    if new_status not in ["LOCK", "UNLOCK", "RESTRICT"]:
+        return jsonify({"error": "Invalid status value"}), 400
+        
+    try:
+        meta = json.loads(storage.read_file_text(thread_meta_path))
+        
+        # Verify ownership
+        current_user_id = f"{settings.user_id}/{settings.role}" if settings.role else settings.user_id
+        creator = meta.get("creator_user_id")
+        if creator and creator != current_user_id:
+            return jsonify({"error": "Unauthorized: Only the thread creator can change status"}), 403
+            
+        meta["status"] = new_status
+        storage.delete(thread_meta_path)
+        storage.write_file_new(thread_meta_path, json.dumps(meta, indent=2))
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": f"Failed to update thread status: {e}"}), 500
+
+@app.route("/api/threads/<thread_id>/archive", methods=["POST"])
+def archive_thread_endpoint(thread_id: str):
     thread_meta_path = Path(settings.thread_root) / thread_id / "thread.json"
     if not storage.exists(thread_meta_path):
         return jsonify({"error": "Thread not found"}), 404
         
     try:
         meta = json.loads(storage.read_file_text(thread_meta_path))
-        meta["status"] = "DONE"
-        meta["closed_at"] = datetime_now()
-        storage.delete(thread_meta_path)
-        storage.write_file_new(thread_meta_path, json.dumps(meta, indent=2))
-        return jsonify({"status": "success"})
+        
+        # Verify ownership
+        current_user_id = f"{settings.user_id}/{settings.role}" if settings.role else settings.user_id
+        creator = meta.get("creator_user_id")
+        if creator and creator != current_user_id:
+            return jsonify({"error": "Unauthorized: Only the thread creator can archive"}), 403
+            
+        success = coordinator.archive_thread(thread_id)
+        if success:
+            return jsonify({"status": "success"})
+        else:
+            return jsonify({"error": "Archive execution failed"}), 500
     except Exception as e:
-        return jsonify({"error": f"Failed to mark thread DONE: {e}"}), 500
+        return jsonify({"error": f"Failed to archive thread: {e}"}), 500
 
 @app.route("/api/drafts", methods=["GET"])
 def list_drafts():

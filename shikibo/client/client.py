@@ -52,8 +52,20 @@ class ThreadMailClient:
             
         try:
             thread_meta = json.loads(self.storage.read_file_text(thread_meta_file))
-            if thread_meta.get("status") == "DONE":
-                raise BAD_VALUE(f"Target thread {thread_id} is marked DONE and closed.")
+            status = thread_meta.get("status")
+            if status == "LOCK":
+                raise BAD_VALUE(f"Target thread {thread_id} is locked.")
+            elif status == "RESTRICT":
+                creator = thread_meta.get("creator_user_id")
+                current_user_id = f"{self.settings.user_id}/{self.settings.role}" if self.settings.role else self.settings.user_id
+                def is_same_user(id1, id2):
+                    if not id1 or not id2:
+                        return False
+                    norm1 = id1[:-8] if id1.endswith("/__DEF__") else id1
+                    norm2 = id2[:-8] if id2.endswith("/__DEF__") else id2
+                    return norm1 == norm2
+                if creator and not is_same_user(creator, current_user_id):
+                    raise BAD_VALUE("Target thread is restricted to its creator only.")
         except BAD_VALUE:
             raise
         except Exception as e:
@@ -261,8 +273,20 @@ class ThreadMailClient:
             
         try:
             thread_meta = json.loads(self.storage.read_file_text(thread_meta_file))
-            if thread_meta.get("status") == "DONE":
-                raise BAD_VALUE(f"Target thread {thread_id} is marked DONE and closed.")
+            status = thread_meta.get("status")
+            if status == "LOCK":
+                raise BAD_VALUE(f"Target thread {thread_id} is locked.")
+            elif status == "RESTRICT":
+                creator = thread_meta.get("creator_user_id")
+                current_user_id = f"{self.settings.user_id}/{self.settings.role}" if self.settings.role else self.settings.user_id
+                def is_same_user(id1, id2):
+                    if not id1 or not id2:
+                        return False
+                    norm1 = id1[:-8] if id1.endswith("/__DEF__") else id1
+                    norm2 = id2[:-8] if id2.endswith("/__DEF__") else id2
+                    return norm1 == norm2
+                if creator and not is_same_user(creator, current_user_id):
+                    raise BAD_VALUE("Target thread is restricted to its creator only.")
         except BAD_VALUE:
             raise
         except Exception as e:

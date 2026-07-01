@@ -46,7 +46,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
     document.getElementById("composer-file-input").addEventListener("change", handleFileUpload);
     document.getElementById("btn-publish").addEventListener("click", publishMessage);
-    document.getElementById("btn-mark-done").addEventListener("click", markThreadDone);
+    document.getElementById("btn-toggle-lock").addEventListener("click", cycleThreadStatus);
+    document.getElementById("btn-archive").addEventListener("click", archiveThread);
     document.getElementById("btn-pause-resume").addEventListener("click", togglePauseResume);
     
     // Enter to publish, Shift+Enter to newline
@@ -202,7 +203,7 @@ async function loadThreads() {
             displayId = displayId.slice(0, 16);
             
             item.textContent = `${t.title} (${displayId})`;
-            item.addEventListener("click", () => selectThread(t.thread_id, t.title, t.description_md || "", t.status, t.hostname, t.created_at));
+            item.addEventListener("click", () => selectThread(t.thread_id, t.title, t.description_md || "", t.status, t.hostname, t.created_at, t.creator_user_id));
             container.appendChild(item);
         });
     } catch (e) {
@@ -235,7 +236,7 @@ async function loadArchivedThreads() {
             displayId = displayId.slice(0, 16);
             
             item.textContent = `${t.title} (${displayId})`;
-            item.addEventListener("click", () => selectThread(t.thread_id, t.title, t.description_md || "", t.status, t.hostname, t.created_at));
+            item.addEventListener("click", () => selectThread(t.thread_id, t.title, t.description_md || "", t.status, t.hostname, t.created_at, t.creator_user_id));
             container.appendChild(item);
         });
     } catch (e) {
@@ -243,7 +244,7 @@ async function loadArchivedThreads() {
     }
 }
 
-function selectThread(threadId, title, desc, status, hostname, createdAt) {
+function selectThread(threadId, title, desc, status, hostname, createdAt, creatorUserId) {
     activeThreadId = threadId;
     lastMessageIds = []; // Clear message IDs on thread change to force scrolling
     
@@ -272,18 +273,34 @@ function selectThread(threadId, title, desc, status, hostname, createdAt) {
     const pauseBtn = document.getElementById("btn-pause-resume");
     pauseBtn.style.display = "block";
     
-    const markDoneBtn = document.getElementById("btn-mark-done");
-    if (status === "OPEN") {
-        markDoneBtn.style.display = "block";
+    // Ownership checks for status controls (Lock, Archive)
+    const currentUser = config.role ? `${config.user_id}/${config.role}` : config.user_id;
+    const isOwner = (!creatorUserId || creatorUserId === currentUser);
+    
+    const toggleLockBtn = document.getElementById("btn-toggle-lock");
+    const archiveBtn = document.getElementById("btn-archive");
+    
+    if (isOwner && status !== "ARCHIVED") {
+        toggleLockBtn.style.display = "block";
+        archiveBtn.style.display = "block";
+        
+        if (status === "UNLOCK") {
+            toggleLockBtn.textContent = "Restrict";
+        } else if (status === "RESTRICT") {
+            toggleLockBtn.textContent = "Lock";
+        } else if (status === "LOCK") {
+            toggleLockBtn.textContent = "Unlock";
+        }
     } else {
-        markDoneBtn.style.display = "none";
+        toggleLockBtn.style.display = "none";
+        archiveBtn.style.display = "none";
     }
     
     // Load messages
     loadThreadMessages(threadId);
     
     // Load or initialize draft
-    setupDraftForThread(threadId, status);
+    setupDraftForThread(threadId, status, isOwner);
 }
 
 async function loadThreadMessages(threadId) {
@@ -363,22 +380,78 @@ async function loadThreadMessages(threadId) {
     }
 }
 
-async function markThreadDone() {
+async function cycleThreadStatus() {
     if (!activeThreadId) return;
-    if (!confirm("Are you sure you want to mark this thread as DONE? It will be closed and archived by the coordinator.")) return;
+    
+    const btn = document.getElementById("btn-toggle-lock");
+    const currentText = btn.textContent;
+    let nextStatus = "UNLOCK";
+    if (currentText === "Restrict") {
+        nextStatus = "RESTRICT";
+    } else if (currentText === "Lock") {
+        nextStatus = "LOCK";
+    } else if (currentText === "Unlock") {
+        nextStatus = "UNLOCK";
+    }
     
     try {
-        const res = await fetch(`/api/threads/${activeThreadId}/done`, { method: "POST" });
+        const res = await fetch(`/api/threads/${activeThreadId}/status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: jsonStringify({ status: nextStatus })
+        });
+        
         if (res.ok) {
-            alert("Thread status updated to DONE.");
-            await loadThreads();
-            selectThread(activeThreadId, "", "", "DONE");
+            await refreshAll();
+            const title = document.getElementById("active-thread-title").textContent;
+            const desc = document.getElementById("active-thread-desc").textContent;
+            const metaText = document.getElementById("active-thread-meta").textContent;
+            let host = "";
+            let created = "";
+            if (metaText) {
+                const parts = metaText.split(" | ");
+                if (parts.length === 2) {
+                    host = parts[0].replace("Host: ", "");
+                    created = parts[1].replace("Created (GMT): ", "");
+                }
+            }
+            const currentUser = config.role ? `${config.user_id}/${config.role}` : config.user_id;
+            selectThread(activeThreadId, title, desc, nextStatus, host, created, currentUser);
         } else {
             const err = await res.json();
-            alert(`Error: ${err.error}`);
+            alert(`Error updating thread status: ${err.error}`);
         }
     } catch (e) {
-        console.error("Failed to mark thread done", e);
+        console.error("Failed to update status", e);
+    }
+}
+
+async function archiveThread() {
+    if (!activeThreadId) return;
+    if (!confirm("Are you sure you want to archive this thread? It will be locked, zipped, and removed from active threads.")) return;
+    
+    try {
+        const res = await fetch(`/api/threads/${activeThreadId}/archive`, { method: "POST" });
+        if (res.ok) {
+            alert("Thread successfully archived!");
+            activeThreadId = null;
+            document.getElementById("active-thread-title").textContent = "Select a thread or create a new one";
+            document.getElementById("active-thread-desc").textContent = "";
+            document.getElementById("active-thread-meta").style.display = "none";
+            document.getElementById("btn-toggle-lock").style.display = "none";
+            document.getElementById("btn-archive").style.display = "none";
+            document.getElementById("btn-pause-resume").style.display = "none";
+            document.getElementById("composer-area").style.display = "none";
+            document.getElementById("closed-thread-notice").style.display = "none";
+            document.getElementById("message-timeline").innerHTML = '<div class="empty-state">No thread selected</div>';
+            
+            await refreshAll();
+        } else {
+            const err = await res.json();
+            alert(`Archive failed: ${err.error}`);
+        }
+    } catch (e) {
+        console.error("Failed to archive thread", e);
     }
 }
 
@@ -433,7 +506,8 @@ async function submitNewThread() {
             document.getElementById("thread-desc-input").value = "";
             
             await loadThreads();
-            selectThread(threadId, title, description, "OPEN");
+            const currentUser = config.role ? `${config.user_id}/${config.role}` : config.user_id;
+            selectThread(threadId, title, description, "UNLOCK", null, null, currentUser);
         } else {
             const err = await res.json();
             alert(`Failed to create thread: ${err.error}`);
@@ -445,13 +519,26 @@ async function submitNewThread() {
 
 // --- Draft & Composer Operations ---
 
-async function setupDraftForThread(threadId, status) {
-    if (status === "DONE" || status === "ARCHIVED") {
+async function setupDraftForThread(threadId, status, isOwner) {
+    const noticeEl = document.getElementById("closed-thread-notice");
+    if (status === "LOCK") {
         document.getElementById("composer-area").style.display = "none";
-        document.getElementById("closed-thread-notice").style.display = "block";
+        noticeEl.textContent = "This thread is locked. No further messages can be posted.";
+        noticeEl.style.display = "block";
+        return;
+    } else if (status === "ARCHIVED") {
+        document.getElementById("composer-area").style.display = "none";
+        noticeEl.textContent = "This thread is archived and closed. No further messages can be posted.";
+        noticeEl.style.display = "block";
+        return;
+    } else if (status === "RESTRICT" && !isOwner) {
+        document.getElementById("composer-area").style.display = "none";
+        noticeEl.textContent = "This thread is restricted. Only the thread creator can post messages.";
+        noticeEl.style.display = "block";
         return;
     }
-    document.getElementById("closed-thread-notice").style.display = "none";
+    
+    noticeEl.style.display = "none";
     document.getElementById("composer-area").style.display = "block";
     document.getElementById("composer-body").value = "";
     document.getElementById("draft-attachments-list").innerHTML = "";

@@ -438,8 +438,19 @@ class CoordinatorService:
             
         try:
             thread_meta = json.loads(self.storage.read_file_text(thread_meta_path))
-            if thread_meta.get("status") == "DONE":
-                return {"status": "closed_thread", "reason": f"Thread {thread_id} is marked DONE and closed"}
+            status = thread_meta.get("status")
+            if status == "LOCK":
+                return {"status": "closed_thread", "reason": f"Thread {thread_id} is locked"}
+            elif status == "RESTRICT":
+                creator = thread_meta.get("creator_user_id")
+                def is_same_user(id1, id2):
+                    if not id1 or not id2:
+                        return False
+                    norm1 = id1[:-8] if id1.endswith("/__DEF__") else id1
+                    norm2 = id2[:-8] if id2.endswith("/__DEF__") else id2
+                    return norm1 == norm2
+                if creator and not is_same_user(creator, user_id):
+                    return {"status": "closed_thread", "reason": "Target thread is restricted to its creator only"}
         except Exception as e:
             return {"status": "malformed_thread", "reason": f"Failed to parse thread.json: {e}"}
 
@@ -612,9 +623,24 @@ class CoordinatorService:
             return summary
 
     def archive_thread(self, thread_id: str) -> bool:
-        """Archives a open/done thread into a zip package, cleaning up the live folder."""
+        """Archives a thread into a zip package, enforcing locked state first and zipping atomically."""
         thread_dir = Path(self.settings.thread_root) / thread_id
         if not self.storage.exists(thread_dir):
+            return False
+            
+        thread_meta_path = thread_dir / "thread.json"
+        if not self.storage.exists(thread_meta_path):
+            return False
+
+        # 1. Enforce Locked state first before zipping
+        try:
+            meta = json.loads(self.storage.read_file_text(thread_meta_path))
+            meta["status"] = "LOCK"
+            meta["closed_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            self.storage.delete(thread_meta_path)
+            self.storage.write_file_new(thread_meta_path, json.dumps(meta, indent=2))
+        except Exception as e:
+            logger.error(f"Failed to lock thread {thread_id} before archiving: {e}")
             return False
             
         prefix = "" if thread_id.startswith("T_") else "T_"
@@ -622,10 +648,14 @@ class CoordinatorService:
         if self.storage.exists(archive_file):
             return False
             
-        # Create ZIP archive
+        # Create ZIP archive atomically
         self.storage.makedirs(archive_file.parent)
+        tmp_archive_file = archive_file.parent / f"{archive_file.name}.tmp"
+        if self.storage.exists(tmp_archive_file):
+            self.storage.delete(tmp_archive_file)
+            
         try:
-            with zipfile.ZipFile(archive_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            with zipfile.ZipFile(str(tmp_archive_file), 'w', zipfile.ZIP_DEFLATED) as zipf:
                 # Add all files recursively
                 for root, dirs, files in os.walk(thread_dir):
                     for file in files:
@@ -633,13 +663,20 @@ class CoordinatorService:
                         rel_path = full_path.relative_to(thread_dir.parent)
                         zipf.write(full_path, rel_path)
                         
+            # Move temp ZIP to final destination
+            if self.storage.exists(tmp_archive_file):
+                self.storage.rename_or_finalize(tmp_archive_file, archive_file)
+                
             # Verify and delete live thread directory
             if self.storage.exists(archive_file):
                 self.storage.delete(thread_dir)
                 return True
         except Exception as e:
             logger.error(f"Failed to archive thread {thread_id}: {e}")
-            if self.storage.exists(archive_file):
-                self.storage.delete(archive_file)
+            if self.storage.exists(tmp_archive_file):
+                try:
+                    self.storage.delete(tmp_archive_file)
+                except Exception:
+                    pass
                 
         return False

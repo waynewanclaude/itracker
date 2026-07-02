@@ -73,6 +73,12 @@ def index():
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
+    try:
+        from importlib.metadata import version
+        pkg_version = version("shikibo")
+    except Exception:
+        pkg_version = "0.1.27"
+        
     return jsonify({
         "user_id": settings.user_id,
         "role": settings.role,
@@ -84,7 +90,8 @@ def get_config():
         "thread_root": settings.thread_root,
         "index_root": settings.index_root,
         "archive_root": settings.archive_root,
-        "scan_interval": settings.scan_interval
+        "scan_interval": settings.scan_interval,
+        "version": pkg_version
     })
 
 @app.route("/api/users", methods=["GET"])

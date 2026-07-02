@@ -398,7 +398,10 @@ class ThreadMailClient:
                 messages = []
                 try:
                     with zipfile.ZipFile(str(archive_path)) as zf:
-                        msg_folders = collections.defaultdict(dict)
+                        # Use default dict structure with initial values
+                        msg_folders = collections.defaultdict(lambda: {
+                            "meta": None, "body": "", "spinoffs": [], "backlinks": []
+                        })
                         for name in zf.namelist():
                             parts = name.split("/")
                             if len(parts) >= 2 and parts[0] == thread_id:
@@ -410,13 +413,29 @@ class ThreadMailClient:
                                     msg_folders[folder_name]["meta"] = zf.read(name).decode("utf-8")
                                 elif sub_file == "body.md":
                                     msg_folders[folder_name]["body"] = zf.read(name).decode("utf-8")
+                                elif sub_file.startswith("spinoff_") and sub_file.endswith(".json"):
+                                    msg_folders[folder_name]["spinoffs"].append(zf.read(name).decode("utf-8"))
+                                elif sub_file.startswith("backlink_") and sub_file.endswith(".json"):
+                                    msg_folders[folder_name]["backlinks"].append(zf.read(name).decode("utf-8"))
                         
                         for folder_name, contents in msg_folders.items():
-                            if "meta" in contents:
+                            if contents["meta"] is not None:
                                 try:
                                     meta = json.loads(contents["meta"])
                                     meta["body"] = contents.get("body", "")
                                     meta["folder_name"] = folder_name
+                                    meta["spinoff_links"] = []
+                                    meta["backlinks"] = []
+                                    for spinoff_str in contents["spinoffs"]:
+                                        try:
+                                            meta["spinoff_links"].append(json.loads(spinoff_str))
+                                        except Exception:
+                                            pass
+                                    for backlink_str in contents["backlinks"]:
+                                        try:
+                                            meta["backlinks"].append(json.loads(backlink_str))
+                                        except Exception:
+                                            pass
                                     messages.append(meta)
                                 except Exception:
                                     pass
@@ -439,6 +458,26 @@ class ThreadMailClient:
                         meta = json.loads(self.storage.read_file_text(meta_path))
                         meta["body"] = self.storage.read_file_text(body_path)
                         meta["folder_name"] = name
+                        
+                        # Load live spinoff_*.json and backlink_*.json files
+                        spinoff_links = []
+                        backlinks = []
+                        msg_entries = self.storage.list_dir(msg_path)
+                        for filename in msg_entries:
+                            if filename.startswith("spinoff_") and filename.endswith(".json"):
+                                try:
+                                    link_content = json.loads(self.storage.read_file_text(msg_path / filename))
+                                    spinoff_links.append(link_content)
+                                except Exception:
+                                    pass
+                            elif filename.startswith("backlink_") and filename.endswith(".json"):
+                                try:
+                                    link_content = json.loads(self.storage.read_file_text(msg_path / filename))
+                                    backlinks.append(link_content)
+                                except Exception:
+                                    pass
+                        meta["spinoff_links"] = spinoff_links
+                        meta["backlinks"] = backlinks
                         messages.append(meta)
                     except Exception:
                         pass

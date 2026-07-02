@@ -217,6 +217,108 @@ def test_integration():
         assert role_scan_dup["processed"] == 0
         print("Role-based flow verified successfully.")
         
+        # 8. Testing Message-to-Message Linking Command Flow
+        print("Testing LINK_MESSAGES command flow...")
+        
+        # Create second thread for linking
+        thread2_id = "T_LINK_TEST_" + run_id
+        client.storage.makedirs(Path(settings.thread_root) / thread2_id)
+        client.storage.makedirs(Path(settings.thread_root) / thread2_id / "messages")
+        client.storage.write_file_new(
+            Path(settings.thread_root) / thread2_id / "thread.json",
+            json.dumps({
+                "thread_id": thread2_id,
+                "title": "Thread 2",
+                "status": "UNLOCK",
+                "creator_user_id": test_user_id
+            }, indent=2)
+        )
+        
+        # Publish message to thread2
+        draft2_id = client.create_draft(thread2_id, "Target message body")
+        _, msg2_id, _ = client.publish_draft(draft2_id)
+        
+        # Scan to distribute message2
+        coordinator.run_scan()
+        
+        # Source message details
+        src_creator = f"{test_user_id}/__DEF__"
+        src_msg_id = "U000001"
+        
+        # Target message details
+        tgt_creator = f"{test_user_id}/__DEF__"
+        tgt_msg_id = msg2_id
+        
+        # Write cmd_LINK package directly to the outbox
+        cmd_dir = Path(settings.outbox_root) / "cmd_link_test"
+        client.storage.makedirs(cmd_dir)
+        
+        cmd_data = {
+            "command_type": "LINK_MESSAGES",
+            "source_user_id": f"{test_user_id}/__DEF__",
+            "source_local_message_id": "cmd_link_001",
+            "params": {
+                "source_thread_id": thread_id,
+                "source_message_creator": src_creator,
+                "source_message_id": src_msg_id,
+                "target_thread_id": thread2_id,
+                "target_message_creator": tgt_creator,
+                "target_message_id": tgt_msg_id
+            }
+        }
+        cmd_dir = Path(settings.outbox_root) / "cmd_link_test"
+        client.storage.write_file_new(cmd_dir / "command.json", json.dumps(cmd_data, indent=2))
+        
+        # Run coordinator scan to process the command
+        import sqlite3
+        cmd_scan = coordinator.run_scan()
+        assert cmd_scan["processed"] == 1
+        print("LINK_MESSAGES command processed successfully.")
+        
+        # Verify receipt is written
+        receipts = client.list_receipts()
+        cmd_receipt = [r for r in receipts if r["source_local_message_id"] == "cmd_link_001"]
+        assert len(cmd_receipt) == 1
+        assert cmd_receipt[0]["status"] == "executed"
+        print("Command execution receipt verified.")
+        
+        # Verify spinoff file was created in source message folder
+        conn = sqlite3.connect(coordinator.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT distributed_filename FROM ledger WHERE source_user_id = ? AND source_local_message_id = ? AND target_thread_id = ?",
+                       (src_creator, src_msg_id, thread_id))
+        src_folder = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT distributed_filename FROM ledger WHERE source_user_id = ? AND source_local_message_id = ? AND target_thread_id = ?",
+                       (tgt_creator, tgt_msg_id, thread2_id))
+        tgt_folder = cursor.fetchone()[0]
+        conn.close()
+        
+        spinoff_file = Path(settings.thread_root) / thread_id / "messages" / src_folder / f"spinoff_{thread2_id}_{tgt_creator.replace('/', '.')}_{tgt_msg_id}.json"
+        assert client.storage.exists(spinoff_file)
+        
+        backlink_file = Path(settings.thread_root) / thread2_id / "messages" / tgt_folder / f"backlink_{thread_id}_{src_creator.replace('/', '.')}_{src_msg_id}.json"
+        assert client.storage.exists(backlink_file)
+        print("Spinoff and backlink files on disk verified.")
+        
+        # Verify API response
+        src_messages = client.read_thread_messages(thread_id)
+        assert len(src_messages) > 0
+        src_msg_meta = [m for m in src_messages if m["source_local_message_id"] == src_msg_id][0]
+        assert "spinoff_links" in src_msg_meta
+        assert len(src_msg_meta["spinoff_links"]) == 1
+        assert src_msg_meta["spinoff_links"][0]["target_thread_id"] == thread2_id
+        assert src_msg_meta["spinoff_links"][0]["target_message_id"] == tgt_msg_id
+        
+        tgt_messages = client.read_thread_messages(thread2_id)
+        assert len(tgt_messages) > 0
+        tgt_msg_meta = [m for m in tgt_messages if m["source_local_message_id"] == tgt_msg_id][0]
+        assert "backlinks" in tgt_msg_meta
+        assert len(tgt_msg_meta["backlinks"]) == 1
+        assert tgt_msg_meta["backlinks"][0]["source_thread_id"] == thread_id
+        assert tgt_msg_meta["backlinks"][0]["source_message_id"] == src_msg_id
+        print("API message linkages verified successfully.")
+        
         print("\n=== INTEGRATION TEST PASSED SUCCESSFULLY! ===")
         
     finally:

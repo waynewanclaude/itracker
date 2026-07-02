@@ -14,38 +14,33 @@
                 <div class="folder-name" id="folder-name">Loading folder...</div>
                 <div class="folder-path" id="folder-path">...</div>
             </div>
+            <div class="workspace-brand-center">
+                <img src="/shikibo_logo.png" alt="Shikibo Logo" class="brand-logo">
+                <span class="brand-version" id="brand-version">v0.0.0</span>
+            </div>
             <div class="last-update-elapsed" id="last-update-elapsed">Last update: 0s ago</div>
         </div>
 
         <div class="app-container">
             <!-- Sidebar -->
             <aside class="sidebar">
-            <div class="sidebar-header" style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-                <img src="/shikibo_logo.png" alt="Shikibo Logo" style="width: 36px; height: 36px; border-radius: 6px; flex-shrink: 0;">
-                <div>
-                    <h2 style="font-size: 1.15rem; margin: 0; line-height: 1.1; font-weight: 700;">Shikibo</h2>
-                    <div class="user-badge" id="user-badge" style="font-size: 0.8rem; margin-top: 2px;">Loading...</div>
-                </div>
+            <div class="sidebar-header">
+                <h2 id="sidebar-user-name">Loading...</h2>
+                <div class="user-badge" id="user-badge">Loading...</div>
             </div>
             
             <nav class="sidebar-nav">
+                <button class="btn btn-primary btn-full" id="btn-new-thread" style="margin-bottom: 20px;">+ New Thread</button>
                 <h3>Active Threads</h3>
                 <div class="thread-list" id="thread-list" style="margin-bottom: 10px;">
                     <!-- Loaded dynamically -->
                 </div>
-                <button class="btn btn-secondary btn-full" id="btn-new-thread" style="margin-bottom: 20px;">+ New Thread</button>
 
                 <h3>Archived Threads</h3>
                 <div class="thread-list" id="archived-thread-list" style="margin-bottom: 10px;">
                     <!-- Loaded dynamically -->
                 </div>
             </nav>
-            
-            <div class="sidebar-footer">
-                <h3>Coordinator</h3>
-                <button class="btn btn-primary btn-full" id="btn-scan">Trigger Scan Now</button>
-                <div class="scan-status" id="scan-status">Ready</div>
-            </div>
         </aside>
 
         <!-- Main Workspace -->
@@ -57,8 +52,8 @@
                     <p id="active-thread-desc"></p>
                     <div id="active-thread-meta" class="thread-meta-small" style="font-size: 0.8rem; color: var(--secondary-color); margin-top: 5px; display: none;"></div>
                     <div class="thread-header-actions">
-                        <button class="btn btn-secondary" id="btn-pause-resume" style="display: none;">Pause Updates</button>
-                        <button class="btn btn-secondary" id="btn-toggle-lock" style="display: none;">Lock</button>
+                        <button class="btn btn-secondary btn-transition" id="btn-pause-resume" style="display: none;"></button>
+                        <button class="btn btn-secondary btn-transition" id="btn-toggle-lock" style="display: none;">Lock</button>
                         <button class="btn btn-danger" id="btn-archive" style="display: none;">Archive</button>
                     </div>
                 </div>
@@ -68,25 +63,35 @@
                     <div class="empty-state">No thread selected</div>
                 </div>
                 
-                <!-- Closed Thread Notification -->
-                <div class="composer" id="closed-thread-notice" style="display: none; background-color: var(--sidebar-bg); border-color: var(--border-color); text-align: center; padding: 20px; font-weight: 500; color: var(--secondary-color);">
-                    This thread is marked DONE and closed. No further messages can be posted.
-                </div>
-
                 <!-- Composer (Draft) Area -->
                 <div class="composer" id="composer-area" style="display: none;">
-                    <h3>Compose Draft</h3>
-                    <textarea id="composer-body" placeholder="Write your markdown message..."></textarea>
-                    
-                    <div class="composer-controls">
-                        <div class="attachments-row">
-                            <input type="file" id="composer-file-input" style="display: none;">
-                            <button class="btn btn-secondary btn-sm" id="btn-add-attachment">Attach File</button>
-                            <span id="draft-attachments-list"></span>
+                    <div class="composer-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; width: 100%;">
+                        <h3 style="margin: 0;" id="composer-header-title">Compose Draft</h3>
+                        <div class="composer-header-actions" style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary btn-sm" id="btn-unselect-all" style="display: none;">Unselect All</button>
+                            <button class="btn btn-secondary btn-sm" id="btn-copy-selected" style="display: none;">Copy</button>
                         </div>
+                    </div>
+                    
+                    <!-- Closed Thread Notification -->
+                    <div id="closed-thread-notice" style="display: none; background-color: var(--sidebar-bg); border-color: var(--border-color); text-align: center; padding: 20px; font-weight: 500; color: var(--secondary-color); width: 100%; border-radius: 4px; border: 1px solid var(--border-color); box-sizing: border-box; margin-bottom: 10px;">
+                        This thread is marked DONE and closed. No further messages can be posted.
+                    </div>
+
+                    <!-- Composer Body and Controls container -->
+                    <div id="composer-body-container" style="display: flex; flex-direction: column; width: 100%; gap: 10px;">
+                        <textarea id="composer-body" placeholder="Write your markdown message..."></textarea>
                         
-                        <div class="action-buttons">
-                            <button class="btn btn-primary" id="btn-publish">Publish Message</button>
+                        <div class="composer-controls">
+                            <div class="attachments-row">
+                                <input type="file" id="composer-file-input" style="display: none;">
+                                <button class="btn btn-secondary btn-sm" id="btn-add-attachment">Attach File</button>
+                                <span id="draft-attachments-list"></span>
+                            </div>
+                            
+                            <div class="action-buttons">
+                                <button class="btn btn-primary" id="btn-publish">Publish Message</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -96,6 +101,11 @@
         <!-- Utility Sidebar -->
         <aside class="util-bar">
             <div class="util-section">
+                <div class="coordinator-control" style="margin-bottom: 20px;">
+                    <h3 style="margin-bottom: 8px;">Coordinator</h3>
+                    <button class="btn btn-primary btn-full" id="btn-scan" style="margin-bottom: 8px;">Trigger Scan Now</button>
+                    <div class="scan-status" id="scan-status" style="text-align: center; font-size: 0.8rem; color: var(--secondary-color);">Ready</div>
+                </div>
                 <h3>Outbox Status</h3>
                 <div class="util-list" id="pending-list">
                     <div class="empty-state">No pending messages</div>

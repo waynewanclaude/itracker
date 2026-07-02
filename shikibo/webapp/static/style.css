@@ -222,15 +222,26 @@ h3 {
     font-size: 0.95rem;
 }
 
-/* Message block */
 .message-card {
     background-color: var(--card-bg);
     border: 1px solid var(--border-color);
+    border-left: 4px solid transparent;
     border-radius: 4px;
     padding: 12px 15px;
     max-width: 85%;
     align-self: flex-start;
     box-shadow: var(--shadow);
+    cursor: pointer;
+    transition: border-left-color 0.15s, background-color 0.15s;
+}
+
+.message-card:hover {
+    border-left-color: rgba(13, 110, 253, 0.4);
+}
+
+.message-card.selected {
+    border-left-color: var(--primary-color);
+    background-color: rgba(13, 110, 253, 0.05);
 }
 
 .message-card.self {
@@ -361,6 +372,16 @@ h3 {
     border-color: #ffc720;
 }
 
+.btn-success {
+    background-color: #198754;
+    color: #ffffff;
+    border-color: #198754;
+}
+
+.btn-success:hover {
+    background-color: #157347;
+}
+
 .btn-sm {
     padding: 3px 8px;
     font-size: 0.8rem;
@@ -482,6 +503,31 @@ h3 {
     flex-shrink: 0;
     width: 100%;
     transition: background-color 0.3s ease;
+    position: relative;
+}
+
+.workspace-brand-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.workspace-brand-center .brand-logo {
+    height: 36px;
+    width: auto;
+    border-radius: 8px;
+    object-fit: contain;
+}
+
+.workspace-brand-center .brand-version {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--secondary-color);
 }
 
 .workspace-info {
@@ -508,4 +554,33 @@ h3 {
     font-weight: 500;
     opacity: 0.9;
     white-space: nowrap;
+}
+
+.btn-transition {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: normal;
+}
+
+.btn-transition strong {
+    font-weight: 700;
+}
+
+.btn-transition .transition-target {
+    opacity: 0.6;
+    font-weight: normal;
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.btn-transition:disabled {
+    background-color: transparent;
+    color: var(--text-color);
+    border-color: var(--border-color);
+    opacity: 0.85;
+    cursor: default;
 }

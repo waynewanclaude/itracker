@@ -511,6 +511,194 @@ class CoordinatorService:
         
         return {"status": "success", "user_id": user_id, "local_id": local_id, "folder_name": dist_folder_name}
 
+    def process_outbox_command(self, pkg_path: Path) -> Dict[str, Any]:
+        """Processes a single outbox command package and executes it."""
+        cmd_path = pkg_path / "command.json"
+        
+        # Stability check
+        if not self.storage.exists(cmd_path):
+            return {"status": "unstable", "reason": "Missing command.json"}
+            
+        try:
+            cmd = json.loads(self.storage.read_file_text(cmd_path))
+        except Exception as e:
+            return {"status": "malformed", "reason": f"Invalid command.json JSON formatting: {e}"}
+            
+        # Validate critical fields
+        cmd_type = cmd.get("command_type")
+        user_id = cmd.get("source_user_id")
+        local_id = cmd.get("source_local_message_id")
+        params = cmd.get("params", {})
+        
+        if not all([cmd_type, user_id, local_id]):
+            return {"status": "malformed", "reason": "Missing required command metadata fields"}
+            
+        # Verify outbox ownership to prevent spoofing
+        users_root = Path(self.settings.root_dir) / "users"
+        try:
+            rel_parts = pkg_path.relative_to(users_root).parts
+            if len(rel_parts) == 3 and rel_parts[1] == "outbox":
+                expected_user_id = rel_parts[0]
+            elif len(rel_parts) == 4 and rel_parts[2] == "outbox":
+                expected_user_id = f"{rel_parts[0]}/{rel_parts[1]}"
+            else:
+                expected_user_id = ""
+        except ValueError:
+            expected_user_id = ""
+
+        if user_id != expected_user_id:
+            return {
+                "status": "malformed", 
+                "reason": f"Security mismatch: source_user_id '{user_id}' does not match outbox owner directory '{expected_user_id}'"
+            }
+
+        # Verify registration
+        top_level_user = user_id.split("/")[0]
+        if top_level_user not in self.get_registered_users():
+            return {
+                "status": "malformed",
+                "reason": f"Security mismatch: top-level user '{top_level_user}' is not registered"
+            }
+
+        # Deduplication check
+        if self.is_message_distributed(user_id, local_id):
+            self.write_receipt_if_missing(user_id, local_id, "SYSTEM")
+            return {"status": "duplicate", "user_id": user_id, "local_id": local_id}
+
+        # Handle commands
+        if cmd_type == "LINK_MESSAGES":
+            src_thread_id = params.get("source_thread_id")
+            src_msg_creator = params.get("source_message_creator")
+            src_msg_id = params.get("source_message_id")
+            tgt_thread_id = params.get("target_thread_id")
+            tgt_msg_creator = params.get("target_message_creator")
+            tgt_msg_id = params.get("target_message_id")
+            
+            if not all([src_thread_id, src_msg_creator, src_msg_id, tgt_thread_id, tgt_msg_creator, tgt_msg_id]):
+                return {"status": "malformed", "reason": "Missing required LINK_MESSAGES parameters"}
+
+            # Retrieve filenames from ledger
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT distributed_filename FROM ledger 
+                WHERE source_user_id = ? AND source_local_message_id = ? AND target_thread_id = ?
+            """, (src_msg_creator, src_msg_id, src_thread_id))
+            src_row = cursor.fetchone()
+            
+            cursor.execute("""
+                SELECT distributed_filename FROM ledger 
+                WHERE source_user_id = ? AND source_local_message_id = ? AND target_thread_id = ?
+            """, (tgt_msg_creator, tgt_msg_id, tgt_thread_id))
+            tgt_row = cursor.fetchone()
+            
+            conn.close()
+            
+            if not src_row:
+                return {"status": "invalid_thread", "reason": f"Source message {src_msg_creator}/{src_msg_id} not found in {src_thread_id}"}
+            if not tgt_row:
+                return {"status": "invalid_thread", "reason": f"Target message {tgt_msg_creator}/{tgt_msg_id} not found in {tgt_thread_id}"}
+                
+            src_folder = src_row[0]
+            tgt_folder = tgt_row[0]
+            
+            # Verify permission / access to both threads
+            src_thread_dir = Path(self.settings.thread_root) / src_thread_id
+            tgt_thread_dir = Path(self.settings.thread_root) / tgt_thread_id
+            
+            if not self.storage.exists(src_thread_dir) or not self.storage.exists(tgt_thread_dir):
+                return {"status": "invalid_thread", "reason": "One or both threads do not exist on disk"}
+
+            # Force list_dir refresh for Windows/virtual drive sync systems
+            try:
+                self.storage.list_dir(src_thread_dir / "messages" / src_folder)
+                self.storage.list_dir(tgt_thread_dir / "messages" / tgt_folder)
+            except Exception:
+                pass
+
+            # Write spinoff file in parent message folder
+            tgt_msg_creator_safe = tgt_msg_creator.replace("/", ".")
+            spinoff_filename = f"spinoff_{tgt_thread_id}_{tgt_msg_creator_safe}_{tgt_msg_id}.json"
+            spinoff_path = src_thread_dir / "messages" / src_folder / spinoff_filename
+            
+            spinoff_data = {
+                "target_thread_id": tgt_thread_id,
+                "target_message_creator": tgt_msg_creator,
+                "target_message_id": tgt_msg_id,
+                "linked_by": user_id,
+                "linked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            }
+            
+            # Write backlink file in child message folder
+            src_msg_creator_safe = src_msg_creator.replace("/", ".")
+            backlink_filename = f"backlink_{src_thread_id}_{src_msg_creator_safe}_{src_msg_id}.json"
+            backlink_path = tgt_thread_dir / "messages" / tgt_folder / backlink_filename
+            
+            backlink_data = {
+                "source_thread_id": src_thread_id,
+                "source_message_creator": src_msg_creator,
+                "source_message_id": src_msg_id,
+                "linked_by": user_id,
+                "linked_at": spinoff_data["linked_at"]
+            }
+            
+            try:
+                if self.storage.exists(spinoff_path):
+                    self.storage.delete(spinoff_path)
+                self.storage.write_file_new(spinoff_path, json.dumps(spinoff_data, indent=2))
+                
+                if self.storage.exists(backlink_path):
+                    self.storage.delete(backlink_path)
+                self.storage.write_file_new(backlink_path, json.dumps(backlink_data, indent=2))
+            except Exception as e:
+                # Clean up if partially failed
+                if self.storage.exists(spinoff_path):
+                    self.storage.delete(spinoff_path)
+                if self.storage.exists(backlink_path):
+                    self.storage.delete(backlink_path)
+                return {"status": "failed", "reason": f"Failed to write spinoff/backlink files: {e}"}
+                
+        else:
+            return {"status": "malformed", "reason": f"Unknown command_type: {cmd_type}"}
+
+        # Write command execution receipt
+        now_utc = datetime.now(timezone.utc)
+        dist_timestamp = now_utc.strftime("%Y%m%dT%H%M%SZ")
+        receipt_filename = f"{local_id}_receipt.json"
+        
+        if "/" in user_id:
+            u_id, role = user_id.split("/", 1)
+            user_receipts_dir = Path(self.settings.root_dir) / "users" / u_id / role / "receipts"
+        else:
+            user_receipts_dir = Path(self.settings.root_dir) / "users" / user_id / "receipts"
+        self.storage.makedirs(user_receipts_dir)
+        
+        receipt_data = {
+            "source_user_id": user_id,
+            "source_local_message_id": local_id,
+            "target_thread_id": "SYSTEM",
+            "distributed_filename": "command_executed",
+            "distributed_at": now_utc.isoformat(),
+            "distributed_counter": 0,
+            "status": "executed"
+        }
+        
+        try:
+            receipt_path = user_receipts_dir / receipt_filename
+            if self.storage.exists(receipt_path):
+                self.storage.delete(receipt_path)
+            self.storage.write_file_new(
+                receipt_path,
+                json.dumps(receipt_data, indent=2)
+            )
+        except Exception as e:
+            return {"status": "failed", "reason": f"Failed to write receipt: {e}"}
+
+        # Record command execution in database ledger
+        self._record_distribution(user_id, local_id, "SYSTEM", "command_executed", 0, dist_timestamp)
+        return {"status": "success", "user_id": user_id, "local_id": local_id, "folder_name": "command_executed"}
+
     def write_receipt_if_missing(self, user_id: str, local_id: str, thread_id: str) -> None:
         """Rewrites a receipt if missing for a previously distributed message."""
         receipt_filename = f"{local_id}_receipt.json"
@@ -541,7 +729,7 @@ class CoordinatorService:
                     "distributed_filename": filename,
                     "distributed_at": timestamp,
                     "distributed_counter": counter,
-                    "status": "distributed"
+                    "status": "executed" if thread_id == "SYSTEM" else "distributed"
                 }
                 self.storage.makedirs(user_receipts_dir)
                 try:
@@ -579,7 +767,10 @@ class CoordinatorService:
                         
                     pkg_path = path / entry
                     if self.storage.is_dir(pkg_path):
-                        res = self.process_outbox_package(pkg_path)
+                        if entry.startswith("cmd_"):
+                            res = self.process_outbox_command(pkg_path)
+                        else:
+                            res = self.process_outbox_package(pkg_path)
                         
                         status = res.get("status")
                         if status == "success":

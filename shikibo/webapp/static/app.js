@@ -4,6 +4,8 @@ let activeThreadId = null;
 let currentDraftId = null;
 let config = {};
 let lastMessageIds = [];
+let selectedMessageIds = new Set();
+let currentMessagesList = [];
 let pollingPaused = false;
 let lastUpdateTime = Date.now();
 
@@ -48,6 +50,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("btn-publish").addEventListener("click", publishMessage);
     document.getElementById("btn-toggle-lock").addEventListener("click", cycleThreadStatus);
     document.getElementById("btn-archive").addEventListener("click", archiveThread);
+    document.getElementById("btn-copy-selected").addEventListener("click", copySelectedMessages);
+    document.getElementById("btn-unselect-all").addEventListener("click", () => {
+        selectedMessageIds.clear();
+        document.querySelectorAll(".message-card.selected").forEach(card => card.classList.remove("selected"));
+        updateCopyButtonState();
+    });
     document.getElementById("btn-pause-resume").addEventListener("click", togglePauseResume);
     
     // Enter to publish, Shift+Enter to newline
@@ -97,14 +105,23 @@ function updateTitleBarColor(folderName) {
     
     document.getElementById("folder-name").style.color = textColor;
     document.getElementById("folder-path").style.color = secColor;
+    const versionEl = document.getElementById("brand-version");
+    if (versionEl) versionEl.style.color = secColor;
+    const elapsedEl = document.getElementById("last-update-elapsed");
+    if (elapsedEl) elapsedEl.style.color = secColor;
 }
 
 async function loadConfig() {
     try {
         const res = await fetch("/api/config");
         config = await res.json();
-        const userText = config.role ? `${config.display_name} (${config.user_id}/${config.role})` : `${config.display_name} (${config.user_id})`;
-        document.getElementById("user-badge").textContent = userText;
+        document.getElementById("sidebar-user-name").textContent = config.display_name || config.user_id;
+        const identityText = config.role ? `${config.user_id}/${config.role}` : config.user_id;
+        document.getElementById("user-badge").textContent = identityText;
+        
+        if (config.version) {
+            document.getElementById("brand-version").textContent = `v${config.version}`;
+        }
         
         // Display root directory info
         const rootDir = config.root_dir || "";
@@ -139,17 +156,20 @@ async function pollUpdates() {
 
 async function togglePauseResume() {
     const btn = document.getElementById("btn-pause-resume");
+    const timeline = document.getElementById("message-timeline");
     pollingPaused = !pollingPaused;
     
     if (pollingPaused) {
-        btn.textContent = "Resume Updates";
-        btn.classList.add("btn-warning");
-        btn.classList.remove("btn-secondary");
+        btn.innerHTML = '<strong>Pause</strong> <span class="transition-target">-&gt; Run</span>';
+        if (timeline) {
+            timeline.style.overflowY = "auto";
+        }
         showScanStatus("Updates paused");
     } else {
-        btn.textContent = "Pause Updates";
-        btn.classList.add("btn-secondary");
-        btn.classList.remove("btn-warning");
+        btn.innerHTML = '<strong>Run</strong> <span class="transition-target">-&gt; Pause</span>';
+        if (timeline) {
+            timeline.style.overflowY = "hidden";
+        }
         showScanStatus("Updates resumed");
         await refreshAll();
         if (activeThreadId) {
@@ -247,6 +267,7 @@ async function loadArchivedThreads() {
 function selectThread(threadId, title, desc, status, hostname, createdAt, creatorUserId) {
     activeThreadId = threadId;
     lastMessageIds = []; // Clear message IDs on thread change to force scrolling
+    selectedMessageIds.clear(); // Clear selections when changing threads
     
     // Highlight active in list
     document.querySelectorAll(".thread-item").forEach(item => {
@@ -271,7 +292,27 @@ function selectThread(threadId, title, desc, status, hostname, createdAt, creato
     }
     
     const pauseBtn = document.getElementById("btn-pause-resume");
-    pauseBtn.style.display = "block";
+    if (pauseBtn) {
+        pauseBtn.style.display = "inline-block";
+        if (pollingPaused) {
+            pauseBtn.innerHTML = '<strong>Pause</strong> <span class="transition-target">-&gt; Run</span>';
+            const timeline = document.getElementById("message-timeline");
+            if (timeline) timeline.style.overflowY = "auto";
+        } else {
+            pauseBtn.innerHTML = '<strong>Run</strong> <span class="transition-target">-&gt; Pause</span>';
+            const timeline = document.getElementById("message-timeline");
+            if (timeline) timeline.style.overflowY = "hidden";
+        }
+    }
+    const copyBtn = document.getElementById("btn-copy-selected");
+    const unselectBtn = document.getElementById("btn-unselect-all");
+    if (copyBtn) {
+        copyBtn.style.display = "inline-block";
+    }
+    if (unselectBtn) {
+        unselectBtn.style.display = "inline-block";
+    }
+    updateCopyButtonState();
     
     // Ownership checks for status controls (Lock, Archive)
     const currentUser = config.role ? `${config.user_id}/${config.role}` : config.user_id;
@@ -280,17 +321,30 @@ function selectThread(threadId, title, desc, status, hostname, createdAt, creato
     const toggleLockBtn = document.getElementById("btn-toggle-lock");
     const archiveBtn = document.getElementById("btn-archive");
     
-    if (isOwner && status !== "ARCHIVED") {
+    if (status !== "ARCHIVED") {
         toggleLockBtn.style.display = "block";
-        archiveBtn.style.display = "block";
+        toggleLockBtn.disabled = !isOwner;
         
-        if (status === "UNLOCK") {
-            toggleLockBtn.textContent = "Restrict";
-        } else if (status === "RESTRICT") {
-            toggleLockBtn.textContent = "Lock";
-        } else if (status === "LOCK") {
-            toggleLockBtn.textContent = "Unlock";
+        if (isOwner) {
+            if (status === "UNLOCK") {
+                toggleLockBtn.innerHTML = '<strong>Unlock</strong> <span class="transition-target">-&gt; Restrict</span>';
+                toggleLockBtn.setAttribute("data-next-status", "RESTRICT");
+            } else if (status === "RESTRICT") {
+                toggleLockBtn.innerHTML = '<strong>Restrict</strong> <span class="transition-target">-&gt; Lock</span>';
+                toggleLockBtn.setAttribute("data-next-status", "LOCK");
+            } else if (status === "LOCK") {
+                toggleLockBtn.innerHTML = '<strong>Lock</strong> <span class="transition-target">-&gt; Unlock</span>';
+                toggleLockBtn.setAttribute("data-next-status", "UNLOCK");
+            }
+        } else {
+            // Non-owners see a static status indicator
+            const capitalize = status.charAt(0) + status.slice(1).toLowerCase();
+            toggleLockBtn.innerHTML = `<strong>${capitalize}</strong>`;
+            toggleLockBtn.removeAttribute("data-next-status");
         }
+        
+        // Only show Archive button for owners
+        archiveBtn.style.display = isOwner ? "block" : "none";
     } else {
         toggleLockBtn.style.display = "none";
         archiveBtn.style.display = "none";
@@ -307,6 +361,7 @@ async function loadThreadMessages(threadId) {
     try {
         const res = await fetch(`/api/threads/${threadId}/messages`);
         const messages = await res.json();
+        currentMessagesList = messages;
         const container = document.getElementById("message-timeline");
         
         // Generate IDs for messages in this render
@@ -325,8 +380,27 @@ async function loadThreadMessages(threadId) {
         messages.forEach(msg => {
             const configUserId = config.role ? `${config.user_id}/${config.role}` : config.user_id;
             const isSelf = msg.source_user_id === configUserId;
+            
+            const messageId = `${msg.source_user_id}_${msg.source_local_message_id}_${msg.local_created_at}`;
+            const isSelected = selectedMessageIds.has(messageId);
+            
             const card = document.createElement("div");
-            card.className = `message-card ${isSelf ? 'self' : ''}`;
+            card.className = `message-card ${isSelf ? 'self' : ''} ${isSelected ? 'selected' : ''}`;
+            
+            card.addEventListener("click", () => {
+                // If user is highlight-selecting text inside the message, skip toggling card selection
+                const selection = window.getSelection().toString();
+                if (selection) return;
+                
+                if (selectedMessageIds.has(messageId)) {
+                    selectedMessageIds.delete(messageId);
+                    card.classList.remove("selected");
+                } else {
+                    selectedMessageIds.add(messageId);
+                    card.classList.add("selected");
+                }
+                updateCopyButtonState();
+            });
             
             // Header
             const meta = document.createElement("div");
@@ -359,6 +433,12 @@ async function loadThreadMessages(threadId) {
                     tag.href = `/api/attachments/${threadId}/${msg.folder_name}/${att.stored_filename}`;
                     tag.target = "_blank";
                     tag.textContent = att.original_filename;
+                    
+                    // Stop event propagation so clicking an attachment does not toggle card selection
+                    tag.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                    });
+                    
                     attachDiv.appendChild(tag);
                 });
                 card.appendChild(attachDiv);
@@ -374,6 +454,7 @@ async function loadThreadMessages(threadId) {
         
         // Update cached IDs
         lastMessageIds = messageIds;
+        updateCopyButtonState();
         recordUIUpdate();
     } catch (e) {
         console.error("Failed to load thread messages", e);
@@ -384,15 +465,7 @@ async function cycleThreadStatus() {
     if (!activeThreadId) return;
     
     const btn = document.getElementById("btn-toggle-lock");
-    const currentText = btn.textContent;
-    let nextStatus = "UNLOCK";
-    if (currentText === "Restrict") {
-        nextStatus = "RESTRICT";
-    } else if (currentText === "Lock") {
-        nextStatus = "LOCK";
-    } else if (currentText === "Unlock") {
-        nextStatus = "UNLOCK";
-    }
+    const nextStatus = btn.getAttribute("data-next-status") || "UNLOCK";
     
     try {
         const res = await fetch(`/api/threads/${activeThreadId}/status`, {
@@ -441,6 +514,8 @@ async function archiveThread() {
             document.getElementById("btn-toggle-lock").style.display = "none";
             document.getElementById("btn-archive").style.display = "none";
             document.getElementById("btn-pause-resume").style.display = "none";
+            document.getElementById("btn-copy-selected").style.display = "none";
+            document.getElementById("btn-unselect-all").style.display = "none";
             document.getElementById("composer-area").style.display = "none";
             document.getElementById("closed-thread-notice").style.display = "none";
             document.getElementById("message-timeline").innerHTML = '<div class="empty-state">No thread selected</div>';
@@ -521,25 +596,30 @@ async function submitNewThread() {
 
 async function setupDraftForThread(threadId, status, isOwner) {
     const noticeEl = document.getElementById("closed-thread-notice");
+    const bodyContainer = document.getElementById("composer-body-container");
+    const composerArea = document.getElementById("composer-area");
+    
+    composerArea.style.display = "block";
+    
     if (status === "LOCK") {
-        document.getElementById("composer-area").style.display = "none";
+        bodyContainer.style.display = "none";
         noticeEl.textContent = "This thread is locked. No further messages can be posted.";
         noticeEl.style.display = "block";
         return;
     } else if (status === "ARCHIVED") {
-        document.getElementById("composer-area").style.display = "none";
+        bodyContainer.style.display = "none";
         noticeEl.textContent = "This thread is archived and closed. No further messages can be posted.";
         noticeEl.style.display = "block";
         return;
     } else if (status === "RESTRICT" && !isOwner) {
-        document.getElementById("composer-area").style.display = "none";
+        bodyContainer.style.display = "none";
         noticeEl.textContent = "This thread is restricted. Only the thread creator can post messages.";
         noticeEl.style.display = "block";
         return;
     }
     
     noticeEl.style.display = "none";
-    document.getElementById("composer-area").style.display = "block";
+    bodyContainer.style.display = "flex";
     document.getElementById("composer-body").value = "";
     document.getElementById("draft-attachments-list").innerHTML = "";
     currentDraftId = null;
@@ -780,4 +860,69 @@ function updatePublishButtonState() {
     const body = document.getElementById("composer-body").value;
     const btn = document.getElementById("btn-publish");
     btn.disabled = (!body || !body.trim());
+}
+
+// --- Clipboard Copy Helpers ---
+function updateCopyButtonState() {
+    const copyBtn = document.getElementById("btn-copy-selected");
+    if (copyBtn) {
+        copyBtn.disabled = (selectedMessageIds.size === 0);
+    }
+}
+
+async function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+    } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+    }
+}
+
+function copySelectedMessages() {
+    if (selectedMessageIds.size === 0) return;
+    
+    // Sort selections chronologically based on their index in currentMessagesList
+    const selectedMsgs = currentMessagesList.filter(msg => {
+        const messageId = `${msg.source_user_id}_${msg.source_local_message_id}_${msg.local_created_at}`;
+        return selectedMessageIds.has(messageId);
+    });
+    
+    // Format each selected message
+    const formattedBlocks = selectedMsgs.map(msg => {
+        const timestamp = msg.local_created_at ? new Date(msg.local_created_at).toLocaleString() : "Unknown date";
+        const writer = msg.source_user_id;
+        const body = msg.body;
+        return `[${timestamp}] ${writer}:\n${body}\n--------------------`;
+    });
+    
+    const clipboardText = formattedBlocks.join("\n\n");
+    
+    copyToClipboard(clipboardText).then(() => {
+        // Clear selections
+        selectedMessageIds.clear();
+        document.querySelectorAll(".message-card.selected").forEach(card => card.classList.remove("selected"));
+        updateCopyButtonState();
+
+        // Provide dynamic visual feedback "Copied!" for 2 seconds
+        const copyBtn = document.getElementById("btn-copy-selected");
+        const originalText = copyBtn.textContent;
+        copyBtn.textContent = "Copied!";
+        copyBtn.classList.add("btn-success");
+        copyBtn.classList.remove("btn-secondary");
+        setTimeout(() => {
+            copyBtn.textContent = originalText;
+            copyBtn.classList.remove("btn-success");
+            copyBtn.classList.add("btn-secondary");
+        }, 2000);
+    }).catch(err => {
+        console.error("Copy failed", err);
+        alert("Failed to copy to clipboard.");
+    });
 }

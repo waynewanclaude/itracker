@@ -139,7 +139,18 @@
     </div>
     
 
-    
+    <!-- Staging Dock for linking messages -->
+    <div class="staging-bar" id="staging-bar" style="display: none;">
+        <div class="staging-content">
+            <span class="staging-badge">🔗 Staged</span>
+            <span class="staging-text" id="staging-text">None</span>
+        </div>
+        <div class="staging-actions">
+            <button class="btn btn-secondary btn-sm" id="btn-clear-staged">Clear</button>
+            <button class="btn btn-primary btn-sm" id="btn-link-staged" disabled>Link to Selected</button>
+        </div>
+    </div>
+
     <script src="app.js"></script>
 </body>
 </html>

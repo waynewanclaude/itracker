@@ -306,6 +306,49 @@ def publish_draft(draft_id: str):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/commands", methods=["POST"])
+def publish_command():
+    data = request.json or {}
+    command_type = data.get("command_type")
+    params = data.get("params", {})
+    if not command_type:
+        return jsonify({"error": "Missing command_type"}), 400
+        
+    try:
+        import uuid
+        cmd_id = f"cmd_link_{str(uuid.uuid4())[:8]}"
+        pkg_name = f"cmd_{cmd_id}"
+        
+        # Staging folder should be written locally inside temporary directory first, then finalized to outbox
+        staging_root = Path(settings.local_draft_root) / "staging"
+        storage.makedirs(staging_root)
+        staging_pkg_path = staging_root / pkg_name
+        storage.makedirs(staging_pkg_path)
+        
+        user_id_val = f"{settings.user_id}/{settings.role}" if settings.role else settings.user_id
+        
+        cmd_data = {
+            "command_type": command_type,
+            "source_user_id": user_id_val,
+            "source_local_message_id": cmd_id,
+            "params": params
+        }
+        
+        storage.write_file_new(staging_pkg_path / "command.json", json.dumps(cmd_data, indent=2))
+        
+        final_outbox_path = Path(settings.outbox_root) / pkg_name
+        storage.rename_or_finalize(staging_pkg_path, final_outbox_path)
+        
+        # Automatically run coordinator scan so UX links update immediately
+        try:
+            coordinator.run_scan()
+        except Exception:
+            pass
+            
+        return jsonify({"status": "success", "command_id": cmd_id})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/receipts", methods=["GET"])
 def list_receipts():
     return jsonify(client.list_receipts())

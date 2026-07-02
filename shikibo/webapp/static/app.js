@@ -9,6 +9,10 @@ let currentMessagesList = [];
 let pollingPaused = false;
 let lastUpdateTime = Date.now();
 
+let stagedMessage = null; // { threadId, creator, messageId, folderName }
+let activeThreadsList = [];
+let archivedThreadsList = [];
+
 // On startup
 document.addEventListener("DOMContentLoaded", async () => {
     await loadConfig();
@@ -56,6 +60,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         document.querySelectorAll(".message-card.selected").forEach(card => card.classList.remove("selected"));
         updateCopyButtonState();
     });
+    document.getElementById("btn-clear-staged").addEventListener("click", clearStagedMessage);
+    document.getElementById("btn-link-staged").addEventListener("click", linkStagedToSelected);
     document.getElementById("btn-pause-resume").addEventListener("click", togglePauseResume);
     
     // Enter to publish, Shift+Enter to newline
@@ -202,6 +208,7 @@ async function loadThreads() {
     try {
         const res = await fetch("/api/threads");
         const threads = await res.json();
+        activeThreadsList = threads;
         const container = document.getElementById("thread-list");
         container.innerHTML = "";
         
@@ -235,6 +242,7 @@ async function loadArchivedThreads() {
     try {
         const res = await fetch("/api/threads/archived");
         const threads = await res.json();
+        archivedThreadsList = threads;
         const container = document.getElementById("archived-thread-list");
         if (!container) return;
         container.innerHTML = "";
@@ -386,6 +394,8 @@ async function loadThreadMessages(threadId) {
             
             const card = document.createElement("div");
             card.className = `message-card ${isSelf ? 'self' : ''} ${isSelected ? 'selected' : ''}`;
+            card.dataset.msgCreator = msg.source_user_id;
+            card.dataset.msgId = msg.source_local_message_id;
             
             card.addEventListener("click", () => {
                 // If user is highlight-selecting text inside the message, skip toggling card selection
@@ -410,9 +420,20 @@ async function loadThreadMessages(threadId) {
             const indexInfo = msg.folder_name ? msg.folder_name.split("_")[1] : "";
             
             meta.innerHTML = `
-                <span><strong>${msg.source_user_id}</strong> ${indexInfo ? `(#${parseInt(indexInfo)})` : ''}</span>
+                <span>
+                    <strong>${msg.source_user_id}</strong> ${indexInfo ? `(#${parseInt(indexInfo)})` : ''}
+                    <button class="btn-stage" title="Stage message for linking">🔗 Stage</button>
+                </span>
                 <span>${timestamp}</span>
             `;
+            
+            const stageBtn = meta.querySelector(".btn-stage");
+            if (stageBtn) {
+                stageBtn.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    stageMessageForLinking(threadId, msg.source_user_id, msg.source_local_message_id, msg.folder_name);
+                });
+            }
             card.appendChild(meta);
             
             // Body
@@ -442,6 +463,50 @@ async function loadThreadMessages(threadId) {
                     attachDiv.appendChild(tag);
                 });
                 card.appendChild(attachDiv);
+            }
+
+            // Render spinoff/backlink list
+            const spinoffs = msg.spinoff_links || [];
+            const backlinks = msg.backlinks || [];
+            if (spinoffs.length > 0 || backlinks.length > 0) {
+                const linksContainer = document.createElement("div");
+                linksContainer.className = "message-links-container";
+                
+                spinoffs.forEach(link => {
+                    const badge = document.createElement("a");
+                    badge.className = "link-badge spinoff-badge";
+                    
+                    let displayThread = link.target_thread_id;
+                    if (displayThread.startsWith("T_")) displayThread = displayThread.slice(2).slice(0, 8);
+                    
+                    badge.innerHTML = `🔗 Spinoff: ${displayThread} (#${link.target_message_id})`;
+                    badge.title = `Jump to spinoff message by ${link.target_message_creator}`;
+                    
+                    badge.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        jumpToMessage(link.target_thread_id, link.target_message_creator, link.target_message_id);
+                    });
+                    linksContainer.appendChild(badge);
+                });
+                
+                backlinks.forEach(link => {
+                    const badge = document.createElement("a");
+                    badge.className = "link-badge backlink-badge";
+                    
+                    let displayThread = link.source_thread_id;
+                    if (displayThread.startsWith("T_")) displayThread = displayThread.slice(2).slice(0, 8);
+                    
+                    badge.innerHTML = `↩️ Backlink: ${displayThread} (#${link.source_message_id})`;
+                    badge.title = `Jump back to source message by ${link.source_message_creator}`;
+                    
+                    badge.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        jumpToMessage(link.source_thread_id, link.source_message_creator, link.source_message_id);
+                    });
+                    linksContainer.appendChild(badge);
+                });
+                
+                card.appendChild(linksContainer);
             }
             
             container.appendChild(card);
@@ -865,9 +930,15 @@ function updatePublishButtonState() {
 // --- Clipboard Copy Helpers ---
 function updateCopyButtonState() {
     const copyBtn = document.getElementById("btn-copy-selected");
+    const unselectBtn = document.getElementById("btn-unselect-all");
+    const hasSelections = (selectedMessageIds.size > 0);
     if (copyBtn) {
-        copyBtn.disabled = (selectedMessageIds.size === 0);
+        copyBtn.disabled = !hasSelections;
     }
+    if (unselectBtn) {
+        unselectBtn.disabled = !hasSelections;
+    }
+    updateLinkButtonState();
 }
 
 async function copyToClipboard(text) {
@@ -926,3 +997,126 @@ function copySelectedMessages() {
         alert("Failed to copy to clipboard.");
     });
 }
+
+// --- Staging Dock Core Logic ---
+function stageMessageForLinking(threadId, creator, messageId, folderName) {
+    stagedMessage = { threadId, creator, messageId, folderName };
+    const bar = document.getElementById("staging-bar");
+    const text = document.getElementById("staging-text");
+    if (bar && text) {
+        let displayThread = threadId;
+        if (displayThread.startsWith("T_")) displayThread = displayThread.slice(2).slice(0, 8);
+        text.textContent = `[${messageId}] by ${creator} (Thread: ${displayThread})`;
+        bar.style.display = "flex";
+    }
+    updateLinkButtonState();
+}
+
+function clearStagedMessage() {
+    stagedMessage = null;
+    const bar = document.getElementById("staging-bar");
+    if (bar) {
+        bar.style.display = "none";
+    }
+}
+
+function updateLinkButtonState() {
+    const linkBtn = document.getElementById("btn-link-staged");
+    if (linkBtn) {
+        const hasSelection = (selectedMessageIds.size > 0);
+        linkBtn.disabled = (!stagedMessage || !hasSelection);
+    }
+}
+
+async function linkStagedToSelected() {
+    if (!stagedMessage || selectedMessageIds.size === 0) return;
+    
+    const targetMsgIdStr = Array.from(selectedMessageIds)[0];
+    const targetMsg = currentMessagesList.find(msg => {
+        const id = `${msg.source_user_id}_${msg.source_local_message_id}_${msg.local_created_at}`;
+        return id === targetMsgIdStr;
+    });
+    
+    if (!targetMsg) {
+        alert("Failed to find target message in active list.");
+        return;
+    }
+    
+    const linkBtn = document.getElementById("btn-link-staged");
+    if (linkBtn) {
+        linkBtn.disabled = true;
+        linkBtn.textContent = "Linking...";
+    }
+    
+    try {
+        const res = await fetch("/api/commands", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: jsonStringify({
+                command_type: "LINK_MESSAGES",
+                params: {
+                    source_thread_id: stagedMessage.threadId,
+                    source_message_creator: stagedMessage.creator,
+                    source_message_id: stagedMessage.messageId,
+                    target_thread_id: activeThreadId,
+                    target_message_creator: targetMsg.source_user_id,
+                    target_message_id: targetMsg.source_local_message_id
+                }
+            })
+        });
+        
+        if (res.ok) {
+            showScanStatus("Messages linked successfully!");
+            clearStagedMessage();
+            
+            // Clear selections
+            selectedMessageIds.clear();
+            document.querySelectorAll(".message-card.selected").forEach(card => card.classList.remove("selected"));
+            updateCopyButtonState();
+            
+            await loadThreadMessages(activeThreadId);
+        } else {
+            const err = await res.json();
+            alert(`Link failed: ${err.error}`);
+        }
+    } catch (e) {
+        console.error("Link command failed", e);
+        alert("Failed to send link command.");
+    } finally {
+        if (linkBtn) {
+            linkBtn.textContent = "Link to Selected";
+            updateLinkButtonState();
+        }
+    }
+}
+
+async function jumpToMessage(threadId, creator, messageId) {
+    let thread = activeThreadsList.find(t => t.thread_id === threadId);
+    let isArchived = false;
+    
+    if (!thread) {
+        thread = archivedThreadsList.find(t => t.thread_id === threadId);
+        isArchived = true;
+    }
+    
+    if (thread) {
+        const currentUser = config.role ? `${config.user_id}/${config.role}` : config.user_id;
+        const status = isArchived ? "ARCHIVED" : (thread.status || "UNLOCK");
+        selectThread(threadId, thread.title, thread.description_md || "", status, thread.hostname, thread.created_at, thread.creator_user_id);
+    } else {
+        selectThread(threadId, threadId, "", "UNLOCK", "", "", "");
+    }
+    
+    // Smooth scroll and pulse highlight targeting after a brief render delay
+    setTimeout(() => {
+        const targetCard = document.querySelector(`.message-card[data-msg-creator="${creator}"][data-msg-id="${messageId}"]`);
+        if (targetCard) {
+            targetCard.scrollIntoView({ behavior: "smooth", block: "center" });
+            targetCard.classList.add("highlight-pulse");
+            setTimeout(() => {
+                targetCard.classList.remove("highlight-pulse");
+            }, 2500);
+        }
+    }, 500);
+}
+

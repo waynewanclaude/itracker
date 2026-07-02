@@ -584,3 +584,150 @@ h3 {
     opacity: 0.85;
     cursor: default;
 }
+
+/* Staging Dock & Linking UI */
+.staging-bar {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 10px 20px;
+    border-radius: 30px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 1000;
+    min-width: 420px;
+    max-width: 90%;
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+    from {
+        transform: translate(-50%, 100%) scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: translate(-50%, 0) scale(1);
+        opacity: 1;
+    }
+}
+
+.staging-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.staging-badge {
+    background: var(--primary-color);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.staging-text {
+    color: var(--text-color);
+    font-size: 0.8rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.staging-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-stage {
+    background: transparent;
+    border: none;
+    color: var(--secondary-color);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    opacity: 0.6;
+    margin-left: 8px;
+}
+
+.btn-stage:hover {
+    background: var(--border-color);
+    color: var(--primary-color);
+    opacity: 1;
+}
+
+.message-links-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.link-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+    text-decoration: none;
+}
+
+.link-badge.spinoff-badge {
+    background: rgba(13, 110, 253, 0.08);
+    color: var(--primary-color);
+}
+
+.link-badge.spinoff-badge:hover {
+    background: var(--primary-color);
+    color: white;
+}
+
+.link-badge.backlink-badge {
+    background: var(--sidebar-bg);
+    color: var(--secondary-color);
+    border-color: var(--border-color);
+}
+
+.link-badge.backlink-badge:hover {
+    background: var(--secondary-color);
+    color: white;
+}
+
+@keyframes pulseHighlight {
+    0% { box-shadow: 0 0 0 0px rgba(13, 110, 253, 0.7); background: rgba(13, 110, 253, 0.1); }
+    70% { box-shadow: 0 0 0 10px rgba(13, 110, 253, 0); background: rgba(13, 110, 253, 0.05); }
+    100% { box-shadow: 0 0 0 0px rgba(13, 110, 253, 0); }
+}
+
+.message-card.highlight-pulse {
+    animation: pulseHighlight 2.5s ease-in-out;
+    border-color: var(--primary-color) !important;
+}
+
+

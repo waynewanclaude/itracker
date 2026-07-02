@@ -1076,12 +1076,18 @@ async function linkStagedToSelected() {
             
             await loadThreadMessages(activeThreadId);
         } else {
-            const err = await res.json();
-            alert(`Link failed: ${err.error}`);
+            let errMsg = "Unknown error";
+            try {
+                const err = await res.json();
+                errMsg = err.error || errMsg;
+            } catch (jsonErr) {
+                errMsg = `HTTP ${res.status}: ${res.statusText}`;
+            }
+            alert(`Link failed: ${errMsg}`);
         }
     } catch (e) {
         console.error("Link command failed", e);
-        alert("Failed to send link command.");
+        alert(`Failed to send link command: ${e.message}`);
     } finally {
         if (linkBtn) {
             linkBtn.textContent = "Link to Selected";
